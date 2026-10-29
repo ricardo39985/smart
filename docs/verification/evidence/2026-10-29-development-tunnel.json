@@ -1,0 +1,47 @@
+{
+  "hostname": "dev.smartcindy.app",
+  "checked_at_utc": "2026-10-29T14:15:22.630069+00:00",
+  "origin": {
+    "status": 200,
+    "marker_matches": true,
+    "server": "BaseHTTP/0.6 Python/3.13.13",
+    "cf_ray": null
+  },
+  "public": {
+    "status": 200,
+    "marker_matches": true,
+    "server": "cloudflare",
+    "cf_ray": "a522cabeced190e1-BOS",
+    "client": "SmartCindy-Development-Probe/0.1"
+  },
+  "tunnel_id": "e423669e-3764-4c2a-be72-572a4105f0a9",
+  "zone_id": "bd00db45e009a580a4c71cdae103f03f",
+  "origin_url": "http://127.0.0.1:8787",
+  "temporary_processes_stopped": true,
+  "persistent_service": "installed, enabled and active following explicit user approval",
+  "unintended_record_removed_and_verified_absent": "dev.smartcindy.com.socialboard.app",
+  "initial_persistent_activation": "pending explicit approval; activation rejected by automatic review",
+  "persistent_activation_followup": {
+    "hostname": "dev.smartcindy.app",
+    "checked_at_utc": "2026-10-29T14:24:36.684188+00:00",
+    "persistent_service": {
+      "unit": "smartcindy-dev-tunnel.service",
+      "enabled": true,
+      "active": true,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "UnitFileState=enabled",
+        "MainPID=756960"
+      ]
+    },
+    "public": {
+      "status": 200,
+      "marker_matches": true,
+      "cf_ray": "a522d8450f4479f0-BOS"
+    },
+    "user_approval": "User explicitly approved persistent activation on 2026-10-29",
+    "temporary_origin_stopped": true,
+    "without_application_origin_status": 502
+  }
+}

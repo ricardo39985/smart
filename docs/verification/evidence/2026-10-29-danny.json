@@ -1,0 +1,249 @@
+{
+  "date": "2026-10-29",
+  "scope": "foundation only; no product E2E or remote test execution pass",
+  "snapshot": {
+    "base_commit": "5ab6c805d5e6071cca4df27244086f6658301e97",
+    "source_sha256": "db16b706c49ae600507b66ed055ece106f5cd8d8818ed0c9322f2b4afcb1c5b8",
+    "files": [
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml",
+      "src/lib.rs",
+      "README.md",
+      "docs/architecture.md",
+      "docs/testing.md"
+    ],
+    "image": {
+      "reference": "rust@sha256:bef0c0c8eee5b866fadb56bd83cdf4681921c3851f2b01dc13b621653a06a4f5",
+      "image_id": "sha256:bef0c0c8eee5b866fadb56bd83cdf4681921c3851f2b01dc13b621653a06a4f5",
+      "size_bytes": 1234299001
+    }
+  },
+  "successful_manifest": {
+    "schema": 1,
+    "job_id": "smartcindy-rust-20261029-03",
+    "source_revision": "working-tree-base-5ab6c805d5e6-snapshot-db16b706c49ae600",
+    "source_sha256": "db16b706c49ae600507b66ed055ece106f5cd8d8818ed0c9322f2b4afcb1c5b8",
+    "image_id": "sha256:bef0c0c8eee5b866fadb56bd83cdf4681921c3851f2b01dc13b621653a06a4f5",
+    "commands": [
+      "set -eu\nexport PATH=/usr/local/cargo/bin:$PATH\nexport RUSTUP_TOOLCHAIN=1.96.0\nexport CARGO_HOME=/work/cargo\nexport CARGO_NET_OFFLINE=true\nexport CARGO_BUILD_JOBS=2\nmkdir -p /work/out\nrustc --version > /work/out/toolchain.txt\ncargo --version >> /work/out/toolchain.txt\nrustup component list --installed >> /work/out/toolchain.txt\ncargo check --locked --offline --all-targets\ncargo build --release --locked --offline\ncargo test --locked --offline --all-targets --no-run\nRUSTDOCFLAGS=-Dwarnings cargo doc --locked --offline --no-deps\ncp target/release/libsmartcindy.rlib /work/out/libsmartcindy.rlib\nsha256sum /work/out/libsmartcindy.rlib > /work/out/build.sha256\nprintf '%s\\n' 'SmartCindy Rust foundation compiled; test binaries compiled but not executed; worker /work is noexec.' > /work/out/result.txt\ncat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max /sys/fs/cgroup/pids.max > /work/out/cgroup.txt\nawk '$2 == \"/work\" {print $2, $4}' /proc/mounts > /work/out/work-mount.txt"
+    ],
+    "artifacts": [
+      "out/toolchain.txt",
+      "out/libsmartcindy.rlib",
+      "out/build.sha256",
+      "out/result.txt",
+      "out/cgroup.txt",
+      "out/work-mount.txt"
+    ],
+    "limits": {
+      "cpus": 2,
+      "memory_mib": 1024,
+      "pids": 64,
+      "timeout_seconds": 180,
+      "tmpfs_mib": 256,
+      "artifact_max_bytes": 10485760,
+      "log_max_bytes": 1048576
+    },
+    "approval_ref": "Rick request 2026-10-29: verify Danny workhorse; compile-only Rust snapshot and artifact retrieval, retain noexec test limitation",
+    "approved": true
+  },
+  "attempts": [
+    {
+      "result": {
+        "artifacts": [],
+        "ended_utc": "2026-10-29T13:42:15Z",
+        "exit_code": 1,
+        "image_id": "sha256:04597109ff53aec023362198276065f1a8f8e4af0d9124413f58d09d02e1f744",
+        "job_id": "smartcindy-probe-20261029-01",
+        "limits": {
+          "artifact_max_bytes": 1048576,
+          "cpus": 2,
+          "log_max_bytes": 1048576,
+          "memory_mib": 1024,
+          "pids": 64,
+          "timeout_seconds": 120,
+          "tmpfs_mib": 256
+        },
+        "log": {
+          "path": "logs/build.log",
+          "sha256": "4fca9f9187ec579b6e2411e48cd9310242e6e1b2df96d7ab09ef6febe56032cd",
+          "size_bytes": 312
+        },
+        "message": "command failed with exit 1",
+        "schema": 1,
+        "source_revision": "synthetic-workhorse-probe-4b89adba98735b39",
+        "source_sha256": "4b89adba98735b39141abdd874e04b79ec72cabedfbaed78bc292ee2c61a26e5",
+        "started_utc": "2026-10-29T13:42:14Z",
+        "status": "failed"
+      },
+      "log": "[broker] container started; source mounted read-only; network=none\n\n=== command 1/1 ===\nTraceback (most recent call last):\n  File \"/work/source/probe.py\", line 10, in <module>\n    assert compiler,\"No native C compiler in existing image\"\n           ^^^^^^^^\nAssertionError: No native C compiler in existing image\n",
+      "local_result_tar_sha256": "d9e6269a8449ff92b096446bae6244b0eca94484ed0c54b3f0f923ca95d63657"
+    },
+    {
+      "result": {
+        "artifacts": [],
+        "ended_utc": "2026-10-29T13:46:23Z",
+        "exit_code": 1,
+        "image_id": "sha256:bef0c0c8eee5b866fadb56bd83cdf4681921c3851f2b01dc13b621653a06a4f5",
+        "job_id": "smartcindy-rust-20261029-01",
+        "limits": {
+          "artifact_max_bytes": 10485760,
+          "cpus": 2,
+          "log_max_bytes": 1048576,
+          "memory_mib": 1024,
+          "pids": 64,
+          "timeout_seconds": 180,
+          "tmpfs_mib": 256
+        },
+        "log": {
+          "path": "logs/build.log",
+          "sha256": "c7fe3f070c533c12d8c96cbbbedcdc01fc6dc249d1d4a784527a6ba7554a59dc",
+          "size_bytes": 721
+        },
+        "message": "command failed with exit 101",
+        "schema": 1,
+        "source_revision": "working-tree-base-5ab6c805d5e6-snapshot-db16b706c49ae600",
+        "source_sha256": "db16b706c49ae600507b66ed055ece106f5cd8d8818ed0c9322f2b4afcb1c5b8",
+        "started_utc": "2026-10-29T13:46:21Z",
+        "status": "failed"
+      },
+      "log": "[broker] container started; source mounted read-only; network=none\n\n=== command 1/1 ===\n    Checking smartcindy v0.1.0 (/work/source)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s\n   Compiling smartcindy v0.1.0 (/work/source)\n    Finished `release` profile [optimized] target(s) in 0.02s\n   Compiling smartcindy v0.1.0 (/work/source)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s\n     Running unittests src/lib.rs (target/debug/deps/smartcindy-d9e9862886447b2a)\nerror: test failed, to rerun pass `--lib`\n\nCaused by:\n  could not execute process `/work/source/target/debug/deps/smartcindy-d9e9862886447b2a` (never executed)\n\nCaused by:\n  Permission denied (os error 13)\n",
+      "local_result_tar_sha256": "38f2dc33e7be0539755d959050db10bc58c594b6f03409b27a4a667f10447abf"
+    },
+    {
+      "result": {
+        "artifacts": [],
+        "ended_utc": "2026-10-29T13:48:17Z",
+        "exit_code": 1,
+        "image_id": "sha256:bef0c0c8eee5b866fadb56bd83cdf4681921c3851f2b01dc13b621653a06a4f5",
+        "job_id": "smartcindy-rust-20261029-02",
+        "limits": {
+          "artifact_max_bytes": 10485760,
+          "cpus": 2,
+          "log_max_bytes": 1048576,
+          "memory_mib": 1024,
+          "pids": 64,
+          "timeout_seconds": 180,
+          "tmpfs_mib": 256
+        },
+        "log": {
+          "path": "logs/build.log",
+          "sha256": "77f35525dc51360349e620d2be549a6e5e5b1f6eb6fe39fc090cec621f8876e2",
+          "size_bytes": 692
+        },
+        "message": "declared artifact missing, non-regular, or symlinked: out/toolchain.txt",
+        "schema": 1,
+        "source_revision": "working-tree-base-5ab6c805d5e6-snapshot-db16b706c49ae600",
+        "source_sha256": "db16b706c49ae600507b66ed055ece106f5cd8d8818ed0c9322f2b4afcb1c5b8",
+        "started_utc": "2026-10-29T13:48:16Z",
+        "status": "failed"
+      },
+      "log": "[broker] container started; source mounted read-only; network=none\n\n=== command 1/1 ===\n    Checking smartcindy v0.1.0 (/work/source)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s\n   Compiling smartcindy v0.1.0 (/work/source)\n    Finished `release` profile [optimized] target(s) in 0.02s\n   Compiling smartcindy v0.1.0 (/work/source)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s\n  Executable unittests src/lib.rs (target/debug/deps/smartcindy-d9e9862886447b2a)\n Documenting smartcindy v0.1.0 (/work/source)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s\n   Generated /work/source/target/doc/smartcindy/index.html\n",
+      "local_result_tar_sha256": "ed2e2a014fa9653f54f13b21cb83c7f760e6f9fa0b21f6d6753cd9acdabb2bd3"
+    },
+    {
+      "result": {
+        "artifacts": [
+          {
+            "path": "out/toolchain.txt",
+            "sha256": "d23723185b3d5288d5041b6138c03d0ce0c39673aa2d2cc60186826b83fc5ebc",
+            "size_bytes": 168
+          },
+          {
+            "path": "out/libsmartcindy.rlib",
+            "sha256": "c0631824e95fb8961bc73358da20bce7b807f423d93d1f47b1ede4c402d4c1ec",
+            "size_bytes": 3582
+          },
+          {
+            "path": "out/build.sha256",
+            "sha256": "22f3fdc284964f7d2f75fedcf18caabfc1689df3857b810ade5ddf1591ffac1e",
+            "size_bytes": 95
+          },
+          {
+            "path": "out/result.txt",
+            "sha256": "7b9dde36bb730535cd0e67604e4db60093142bd06d68741a1da213db6ff31a3b",
+            "size_bytes": 102
+          },
+          {
+            "path": "out/cgroup.txt",
+            "sha256": "3780b6851a1065b140050a798666ae233304169d4bd31d6017ca514fff2aba42",
+            "size_bytes": 30
+          },
+          {
+            "path": "out/work-mount.txt",
+            "sha256": "547b5b96eb07c8898bccf0e91261a4ae26531ec27219f855c52a3aa0c12c5484",
+            "size_bytes": 51
+          }
+        ],
+        "ended_utc": "2026-10-29T13:49:29Z",
+        "exit_code": 0,
+        "image_id": "sha256:bef0c0c8eee5b866fadb56bd83cdf4681921c3851f2b01dc13b621653a06a4f5",
+        "job_id": "smartcindy-rust-20261029-03",
+        "limits": {
+          "artifact_max_bytes": 10485760,
+          "cpus": 2,
+          "log_max_bytes": 1048576,
+          "memory_mib": 1024,
+          "pids": 64,
+          "timeout_seconds": 180,
+          "tmpfs_mib": 256
+        },
+        "log": {
+          "path": "logs/build.log",
+          "sha256": "81a82bd49637c3f2775f5d0c8179d4ca6151fa981196db9a7232d3b089fe78a9",
+          "size_bytes": 692
+        },
+        "message": "all approved commands passed",
+        "schema": 1,
+        "source_revision": "working-tree-base-5ab6c805d5e6-snapshot-db16b706c49ae600",
+        "source_sha256": "db16b706c49ae600507b66ed055ece106f5cd8d8818ed0c9322f2b4afcb1c5b8",
+        "started_utc": "2026-10-29T13:49:26Z",
+        "status": "succeeded"
+      },
+      "log": "[broker] container started; source mounted read-only; network=none\n\n=== command 1/1 ===\n    Checking smartcindy v0.1.0 (/work/source)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s\n   Compiling smartcindy v0.1.0 (/work/source)\n    Finished `release` profile [optimized] target(s) in 0.03s\n   Compiling smartcindy v0.1.0 (/work/source)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s\n  Executable unittests src/lib.rs (target/debug/deps/smartcindy-d9e9862886447b2a)\n Documenting smartcindy v0.1.0 (/work/source)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s\n   Generated /work/source/target/doc/smartcindy/index.html\n",
+      "local_result_tar_sha256": "1f0d2f859d81c69d576e6122233f544cf48a06cb626233abc84b09182210ff3f"
+    }
+  ],
+  "postflight": {
+    "windows": {
+      "host": "Dannys-Old-But-Gold-Pc",
+      "owner": "DANNYS-OLD-BUT-\\Danny",
+      "wsl_state": "Running WSL2",
+      "wsl_started_by_dispatcher": true,
+      "disk_free_bytes": {
+        "X:": 166884253696,
+        "C:": 51680190464
+      },
+      "free_memory_bytes": 47399337984,
+      "encoders": 0,
+      "build_tasks_running": 0
+    },
+    "linux": {
+      "cgroup_version": "2",
+      "docker_cpus": 20,
+      "docker_memory_bytes": 33573154816,
+      "docker_server": "29.9.2",
+      "free_wsl_bytes": 1006995456000,
+      "free_wsl_memory_bytes": 32666345472,
+      "managed_containers": 0,
+      "max_job_cpus": 20,
+      "max_job_memory_mib": 28672,
+      "memory_reserve_bytes": 3221225472,
+      "pool": {
+        "active": [],
+        "queued": [],
+        "reserved_cpus": 0,
+        "reserved_memory_mib": 0
+      },
+      "running_containers": 0
+    }
+  },
+  "returned_text_artifacts": {
+    "work-mount.txt": "/work rw,nosuid,nodev,noexec,relatime,size=262144k\n",
+    "cgroup.txt": "200000 100000\n1073741824\n0\n64\n",
+    "result.txt": "SmartCindy Rust foundation compiled; test binaries compiled but not executed; worker /work is noexec.\n",
+    "build.sha256": "c0631824e95fb8961bc73358da20bce7b807f423d93d1f47b1ede4c402d4c1ec  /work/out/libsmartcindy.rlib\n",
+    "toolchain.txt": "rustc 1.96.0 (ac68faa20 2026-05-25)\ncargo 1.96.0 (30a34c682 2026-05-25)\ncargo-x86_64-unknown-linux-gnu\nrust-std-x86_64-unknown-linux-gnu\nrustc-x86_64-unknown-linux-gnu\n"
+  }
+}

@@ -1,0 +1,16 @@
+[Unit]
+Description=SmartCindy local development Cloudflare tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel --config /home/rick/Documents/Code/smartcindy/ops/cloudflared.dev.yml run e423669e-3764-4c2a-be72-572a4105f0a9
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

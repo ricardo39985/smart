@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VERSION=0.20261027.0
+BASE="$ROOT/.work/tools"
+DEST="$BASE/blaze-$VERSION"
+URL="https://github.com/indexable-inc/blaze/releases/download/v$VERSION/blaze-v$VERSION-x86_64-unknown-linux-gnu.tar.gz"
+HASH=df61ce6d8216087a40e986d4f84cf2a230638bde014e38519e08b50282e90e5d
+
+if [ "$(uname -s):$(uname -m)" != Linux:x86_64 ]; then
+  echo "Blaze installation is supported here only on Linux x86_64; see https://github.com/indexable-inc/blaze" >&2
+  exit 1
+fi
+if [ -d "$DEST" ]; then
+  [ -x "$DEST/blaze" ] && "$DEST/blaze" --version | grep -F "$VERSION" >/dev/null || { echo "Existing Blaze installation does not match $VERSION" >&2; exit 1; }
+  echo "Blaze $VERSION already installed at $DEST"
+  exit 0
+fi
+mkdir -p "$BASE"
+TMP=$(mktemp -d "$BASE/.blaze-install.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+python3 - "$URL" "$TMP/archive.tar.gz" <<'PY'
+import sys, urllib.request
+urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
+PY
+printf '%s  %s\n' "$HASH" "$TMP/archive.tar.gz" | sha256sum -c -
+python3 - "$TMP/archive.tar.gz" "$TMP/extracted" <<'PY'
+import sys, tarfile
+with tarfile.open(sys.argv[1], 'r:gz') as archive:
+    archive.extractall(sys.argv[2], filter='data')
+PY
+EXTRACTED="$TMP/extracted/blaze-v$VERSION-x86_64-unknown-linux-gnu"
+[ -x "$EXTRACTED/blaze" ] || { echo "Unexpected Blaze archive layout" >&2; exit 1; }
+"$EXTRACTED/blaze" --version | grep -F "$VERSION" >/dev/null || { echo "Downloaded Blaze version mismatch" >&2; exit 1; }
+mv "$EXTRACTED" "$DEST"
+echo "Installed Blaze $VERSION at $DEST"

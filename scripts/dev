@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VERSION=0.20261027.0
+BLAZE="$ROOT/.work/tools/blaze-$VERSION/blaze"
+if [ ! -x "$BLAZE" ] || ! "$BLAZE" --version | grep -F "$VERSION" >/dev/null; then
+  echo "Verified project Blaze $VERSION is required; run: sh scripts/install-blaze" >&2
+  exit 1
+fi
+command=${1:-build}
+case "$command" in
+  build|check|test|run|status|stop) ;;
+  *) echo "Usage: sh scripts/dev [build|check|test|run|status|stop] [Blaze arguments...]" >&2; exit 2 ;;
+esac
+if [ "$#" -gt 0 ]; then shift; fi
+export CARGO_TARGET_DIR="$ROOT/.work/blaze-target"
+cd "$ROOT"
+exec "$BLAZE" "$command" "$@"

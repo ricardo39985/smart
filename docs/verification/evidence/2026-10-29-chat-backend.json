@@ -1,0 +1,90 @@
+{
+  "recorded_at_utc": "2026-10-29T15:16:34.880799+00:00",
+  "revision": "uncommitted local working snapshot; no commit/push/deployment",
+  "snapshot_sha256": "87782977e920068ccf42a3571cd530b637ae399b365f603284d3a425819c79e9",
+  "files_sha256": {
+    "Cargo.lock": "a6a6742ddd42941ef66d063f8d5f114c2fac5b5936156b631c322910ef9a57de",
+    "Cargo.toml": "ba59c2eebb5468d3d3675466c56c773e78fa96728bb10d55533afb9716542148",
+    "docs/api.md": "770086c0fd8720d6b866559339cfe1606a39994d8b370b2a3cfb2e4ffd53bbdb",
+    "docs/openapi.json": "a18b09929b242f5b76219e846a4c69b69e3b8d2bb35baa20a380c46fe8522f1b",
+    "migrations/0001_durable_chat.sql": "a14da75efafb889bf7bfec01e0d7e6e8106cb1dc08d9ab8e00741e52304de1e4",
+    "rust-toolchain.toml": "2c388180d0d5476ed0d69975b382feaf709bb072d51a342add3030cfb3d1bdb2",
+    "scripts/check": "0caa7ff112314634341b05e7d50b2421ea56cc0ec80a0e45963d9c993f19a0e5",
+    "scripts/dev": "62312626d5a9f1f9aea62dce83604b00d0c80e1342f91a715aae39dc59195df0",
+    "scripts/install-blaze": "df01115043eb4d9da536ba1756ec86cc41c2cc67ceed4adc9d38db4f53c05676",
+    "src/attachments.rs": "5a4d8598e6a01e7337a475c485c0fa34e9666e56e10c5463e4291b3c840aa728",
+    "src/auth.rs": "1c85b190db61cd5f30a2a3c10b577b658d5b4d1aa83d87dbea5a098eec6efe1e",
+    "src/bin/smartcindy.rs": "98bea1735037c461e5cc0763a13e6e473711a7751c6f101f3f68b2a59564e81e",
+    "src/chat.rs": "13f8f87edc14ada3e6c12824b784642e9a552c0f012c544ee87072d8ace8d203",
+    "src/http.rs": "118e77ce4c0e0ca223573c2c5457a9a6b6770477ce3292578b9e57bae671708f",
+    "src/lib.rs": "4a36c3cd24bf833117eaa4792a11a907ac8d119a59b05cfdf634009988e43e90",
+    "src/provider.rs": "7a77b3ebec9d9e3cbb040fc7306330b58518ce40d4fa14937abd5ba950a8921b",
+    "src/worker.rs": "68ebd365d0aed49384cff48da3af45a964457b50e109837eb114703cd77037fd",
+    "tests/durable_chat_http.rs": "e03ee91524c499c74468ed7088877e93c7cc8b94aad7d61274199429b962aa69",
+    "tests/recovery_http.rs": "5173a27b143ffe38056c008d0c5f27a62c952d86ad69ec78d701f06d5306e05a"
+  },
+  "toolchain": "Rust 1.96.0",
+  "database_image": "pgvector/pgvector:pg18@sha256:ad249f9fb9572979643a47694e59b9a8cdcdf6abc6accebf49bb80ad5f20ff9b",
+  "full_checks": {
+    "command": "sh scripts/check",
+    "result": "passed",
+    "http_scenarios": 10,
+    "property_cases": 24,
+    "property_seed": 73641981,
+    "suite_seconds": 28.43,
+    "later_affected_scenario": "authenticated_durable_turn_replay_retry_and_scoped_ownership passed after additional unknown-field assertion; strict lint and formatting passed afterward"
+  },
+  "regressions": [
+    {
+      "test": "branch_page_snapshot_survives_a_branch_continuation",
+      "before": "missing branch: expected 1 item, observed 0",
+      "after": "passed unchanged assertions"
+    },
+    {
+      "test": "deleting_chats_reclaims_exclusive_images_and_preserves_shared_images",
+      "before": "expected deleted attachment 404, observed undeletable 409",
+      "after": "passed unchanged assertions"
+    },
+    {
+      "test": "stream_subscribers_are_bounded_and_disconnect_releases_capacity",
+      "before": "expected subscriber overflow 429, observed unbounded 200",
+      "after": "passed unchanged assertions"
+    }
+  ],
+  "mutation": {
+    "cargo_mutants_version": "27.1.0",
+    "total_mutants": 4,
+    "caught": 4,
+    "missed": 0,
+    "timeout": 0,
+    "unviable": 0,
+    "start_time": "2026-10-29T15:01:49.227903234Z",
+    "end_time": "2026-10-29T15:04:10.129441233Z"
+  },
+  "mutation_scope": [
+    "src/auth.rs:137:38: replace + with - in login",
+    "src/http.rs:147:9: replace || with && in decode",
+    "src/http.rs:146:9: replace || with && in decode",
+    "src/http.rs:158:8: delete ! in limit"
+  ],
+  "mutation_limitation": "Selected expiry and cursor/page guards only, unchanged since run; not comprehensive SQL/lease/security mutation coverage.",
+  "openapi": "OpenAPI 3.1 formal validator passed; all 14 route paths matched; 147 local references resolved.",
+  "blaze": {
+    "stable": "0.20261027.0 (49ca152)",
+    "stable_archive_sha256": "df61ce6d8216087a40e986d4f84cf2a230638bde014e38519e08b50282e90e5d",
+    "check": "passed on final snapshot (0.22s); earlier load checks took22.16s and21.41s; own nightly2026-10-27, separate target",
+    "build": "failed unsupported __RUST_STD_INTERNAL_VAL",
+    "candidate": "0.20261029.4",
+    "candidate_archive_sha256": "6d622084cd5803e46fd3a3ede4fbd17e6b11ce977be9e34ecd21e3658ab02681",
+    "candidate_build": "failed unsupported Axum async coroutine layout",
+    "global_wrapper": "not enabled",
+    "scripts": "shell syntax, existing-install idempotency and invocation from /tmp checked"
+  },
+  "not_run": [
+    "live paid provider compatibility",
+    "Flutter native chat or virtualization",
+    "iOS/macOS device acceptance",
+    "persistent origin startup/deployment",
+    "capacity/restore drills"
+  ]
+}

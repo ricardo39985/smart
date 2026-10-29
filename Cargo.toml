@@ -1,0 +1,43 @@
+[package]
+name = "smartcindy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+axum = "0.8.9"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "uuid", "chrono", "json", "migrate", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sonic-rs = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "stream", "gzip", "json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+argon2 = "0.5"
+async-stream = "0.3"
+futures-util = "0.3"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+anyhow = "1"
+
+[dev-dependencies]
+testcontainers = "0.28"
+proptest = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+
+# SQLx's async procedural machinery is unsupported by Blaze's WASM macro compiler.
+# Expand this one dependency natively, retaining Blaze's macro sandbox.
+[workspace.metadata.blaze]
+native-proc-macros = ["sqlx-macros"]

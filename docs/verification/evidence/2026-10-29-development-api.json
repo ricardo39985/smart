@@ -1,0 +1,83 @@
+{
+  "checked_at_utc": "2026-10-29T15:49:38.431644+00:00",
+  "origin_machine": "Dannys-Old-But-Gold-Pc",
+  "runtime": "native API and PostgreSQL services inside existing Ubuntu-24.04 WSL2",
+  "connector_and_ssh_relay_machine": "rick-Inspiron-16-5625",
+  "tls_validation": true,
+  "checks": [
+    {
+      "url": "http://127.0.0.1:8787/healthz",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      },
+      "cloudflare_ray": null,
+      "cache_control": "no-store"
+    },
+    {
+      "url": "http://127.0.0.1:8787/v1/chats",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": "unauthorized",
+          "message": "unauthorized"
+        }
+      },
+      "cloudflare_ray": null,
+      "cache_control": "no-store"
+    },
+    {
+      "url": "http://127.0.0.1:8787/",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "not_found"
+        }
+      },
+      "cloudflare_ray": null,
+      "cache_control": "no-store"
+    },
+    {
+      "url": "https://dev.smartcindy.app/healthz",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      },
+      "cloudflare_ray": "a52354cbabef4f75-BOS",
+      "cache_control": "no-store"
+    },
+    {
+      "url": "https://dev.smartcindy.app/v1/chats",
+      "status": 401,
+      "body": {
+        "error": {
+          "code": "unauthorized",
+          "message": "unauthorized"
+        }
+      },
+      "cloudflare_ray": "a52354cc5dbec1a2-BOS",
+      "cache_control": "no-store"
+    },
+    {
+      "url": "https://dev.smartcindy.app/",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "not_found"
+        }
+      },
+      "cloudflare_ray": "a52354cd0bc34f7f-BOS",
+      "cache_control": "no-store"
+    }
+  ],
+  "provider_keys_configured": false,
+  "live_provider_generation_verified": false,
+  "production_deployment": false,
+  "remote_preflight": "{\"host\": \"Dannys-Old-But-Gold-Pc\", \"local_health\": {\"status\": \"ok\"}, \"api_binary_sha256\": \"aa6072f9ecf53ddf41d0c38aa8f194d285bb58257a0d78f1c5fa1f6075371c63\"}\n{\"cgroup_version\":\"2\",\"docker_cpus\":20,\"docker_memory_bytes\":33573171200,\"docker_server\":\"29.9.2\",\"free_wsl_bytes\":1006340452352,\"free_wsl_memory_bytes\":32518336512,\"managed_containers\":0,\"max_job_cpus\":20,\"max_job_memory_mib\":28672,\"memory_reserve_bytes\":3221225472,\"pool\":{\"active\":[],\"queued\":[],\"reserved_cpus\":0,\"reserved_memory_mib\":0},\"running_containers\":0}\n\n",
+  "changed_source_sha256": {
+    "src/http.rs": "a3a3bb9031b9fbb35f206eca112dd4d3390501678658380db0c56ef367e54888",
+    "tests/health_http.rs": "a161dc8400261f020d480456e6a585331d8e23d8b0b4d21559921da120391a04"
+  }
+}

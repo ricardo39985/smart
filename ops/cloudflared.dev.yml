@@ -1,0 +1,8 @@
+# Local development only. The backend must bind to 127.0.0.1:8787.
+# Credential contents stay outside both repositories.
+tunnel: e423669e-3764-4c2a-be72-572a4105f0a9
+credentials-file: /home/rick/.cloudflared/e423669e-3764-4c2a-be72-572a4105f0a9.json
+ingress:
+  - hostname: dev.smartcindy.app
+    service: http://127.0.0.1:8787
+  - service: http_status:404

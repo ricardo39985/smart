@@ -1,0 +1,17 @@
+[Unit]
+Description=SmartCindy Cloudflare origin relay to Danny
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -F /dev/null -T -i /home/rick/Dropbox/PC/id_ed25519 -o UserKnownHostsFile=/home/rick/Dropbox/PC/known_hosts -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes -o UpdateHostKeys=no -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o ForwardAgent=no -o ForwardX11=no -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -L 127.0.0.1:8787:127.0.0.1:8787 danny@192.168.1.189 wsl.exe --distribution Ubuntu-24.04 --user smartcindy --exec /bin/sleep infinity
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

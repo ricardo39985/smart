@@ -1,0 +1,75 @@
+{
+  "execution_host": "Dannys-Old-But-Gold-Pc",
+  "public_api": "https://dev.smartcindy.app",
+  "authenticated_smoke": "passed",
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/v1/sessions",
+      "status": 200,
+      "cloudflare_ray": "a523585e9a48318c-BOS"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "status": 200,
+      "cloudflare_ray": "a5235861c98533a9-BOS"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/chats",
+      "status": 201,
+      "cloudflare_ray": "a52358626906554d-BOS"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/chats?limit=1",
+      "status": 200,
+      "cloudflare_ray": "a52358630c7f72e6-BOS"
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/chats/887d3703-c74b-4c0f-b18f-3bc169161bc3",
+      "status": 200,
+      "cloudflare_ray": "a5235863a8ce3427-BOS"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/chats/887d3703-c74b-4c0f-b18f-3bc169161bc3",
+      "status": 200,
+      "cloudflare_ray": "a52358642b80ae27-BOS"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/chats/887d3703-c74b-4c0f-b18f-3bc169161bc3/messages?limit=1",
+      "status": 200,
+      "cloudflare_ray": "a5235864da306e0d-BOS"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/chats/887d3703-c74b-4c0f-b18f-3bc169161bc3?version=2",
+      "status": 204,
+      "cloudflare_ray": "a523586588fd8731-BOS"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/chats/887d3703-c74b-4c0f-b18f-3bc169161bc3",
+      "status": 404,
+      "cloudflare_ray": "a52358662c40da66-BOS"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/sessions/current",
+      "status": 204,
+      "cloudflare_ray": "a5235866ed658f69-BOS"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/chats",
+      "status": 401,
+      "cloudflare_ray": "a52358679b94f281-BOS"
+    }
+  ],
+  "synthetic_rows_removed": true,
+  "provider_calls": 0
+}

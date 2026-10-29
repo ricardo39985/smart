@@ -1,0 +1,29 @@
+[Unit]
+Description=SmartCindy development API on Danny
+Requires=smartcindy-danny-postgres.service
+After=network.target smartcindy-danny-postgres.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=smartcindy
+Group=smartcindy
+WorkingDirectory=/opt/smartcindy/dev
+EnvironmentFile=/opt/smartcindy/dev/secrets/dev.env
+ExecStart=/opt/smartcindy/dev/bin/smartcindy serve
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+CPUQuota=200%
+MemoryMax=1G
+MemorySwapMax=0
+TasksMax=256
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

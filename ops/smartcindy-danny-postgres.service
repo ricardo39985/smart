@@ -1,0 +1,28 @@
+[Unit]
+Description=SmartCindy isolated development PostgreSQL on Danny
+After=network.target
+
+[Service]
+Type=simple
+User=smartcindy
+Group=smartcindy
+RootDirectory=/opt/smartcindy/dev/postgres-root
+MountAPIVFS=true
+ExecStart=/usr/lib/postgresql/18/bin/postgres -D /var/lib/postgresql/data -c listen_addresses=127.0.0.1 -c port=55433 -c unix_socket_directories=/tmp -c shared_buffers=64MB -c max_connections=40 -c work_mem=4MB -c jit=off
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=+/var/lib/postgresql
+ProtectHome=true
+CPUQuota=100%
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=128
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

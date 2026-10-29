@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$SCRIPT_DIR/.."
+
+checked_cargo() {
+    if command -v rtk >/dev/null 2>&1; then
+        rtk cargo "$@"
+    else
+        cargo "$@"
+    fi
+}
+
+printf '%s\n' 'Checking backend contracts with disposable PostgreSQL/Docker and paid-provider simulators; not native or live-provider acceptance.'
+cargo fmt --all -- --check
+checked_cargo clippy --locked --all-targets -- -D warnings
+checked_cargo test --locked --all-targets
+checked_cargo test --locked --doc
+RUSTDOCFLAGS=-Dwarnings cargo doc --locked --no-deps
