@@ -71,11 +71,15 @@ edge abuse limits, PgBouncer settings, capacity measurement, backup/restore, acc
 orphan/transcript retention and unknown-paid-outcome reconciliation remain release work.
 Current context limits are explicit; memory compaction is not silently substituted.
 
-The sibling Flutter app remains its initial Android/iOS shell. Lazy ListView.builder/SliverList,
-stable IDs, anchored older-page loading, per-branch cursors, bounded message/image caches,
-secure device sessions and incremental replay/deduplication are documented consumer
-requirements, not implemented native UI. Device/emulator journeys and iOS/macOS/Xcode
-acceptance remain pending. No browser frontend or Playwright acceptance is claimed.
+The sibling Flutter app now has Chat, Your space and Create preview screens, lazy sample
+library rows, retained local drafts and a real development health consumer. Its 21 local
+checks and native Android shell/readiness journey passed on Inspiron under the user's
+explicit local-Android authorization. It builds without private files or this checkout.
+Authenticated live chat pagination, stable IDs, anchored older-page loading, per-branch
+cursors, bounded history/image caches, secure sessions and streaming replay remain client
+work. iOS/macOS/Xcode compilation and native chat acceptance remain pending. See the
+[client status](https://github.com/ricardo39985/smartcindy-app/blob/main/docs/status.md).
+No browser frontend or Playwright acceptance is claimed.
 
 Public signup/email/recovery, subscription billing/distribution review, Rig/rig-memory/mem0-rs,
 personal memory/embeddings, research/search and reminders/push remain separate product

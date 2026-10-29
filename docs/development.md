@@ -61,7 +61,7 @@ sh scripts/check
 rtk cargo test --locked
 ```
 
-Use RTK for human-facing output. For JSON consumed by tooling, use raw Cargo output. The sibling Flutter client is `../smartcindy-app`; use its documented `sh scripts/check` for local checks. Resolve packages with `flutter pub get` when needed and track `pubspec.lock`. No hosted CI is used; local checks and deployment are manual and reviewed. The Flutter client has no chat UI yet. Backend startup and the actual HTTP contract are in docs/api.md and README.md.
+Use RTK for human-facing output. For JSON consumed by tooling, use raw Cargo output. The sibling Flutter client is `../smartcindy-app`; use its documented `sh scripts/check` for local checks. Resolve packages with `flutter pub get` when needed and track `pubspec.lock`. No hosted CI is used; local checks and deployment are manual and reviewed. Its chat screen is a labeled preview; authenticated chat APIs are not yet consumed. Backend startup and the actual HTTP contract are in docs/api.md and README.md.
 
 ## Blaze development iteration
 

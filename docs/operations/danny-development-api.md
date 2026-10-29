@@ -10,6 +10,13 @@ The existing path remains Cloudflare → the `rick-Inspiron-16-5625` user cloudf
 
 Protected configuration is root-owned `/opt/smartcindy/dev/secrets/dev.env` (mode 600); it contains development database URLs and listen address only. Only the runtime and trusted operator may read it; never print it, commit it, or pass it to coding models. Do not expose the database or bind either service publicly.
 
+The owner-selected configuration store is now `/home/rick/Dropbox/SmartCindy` on
+Inspiron. Development database configuration and a backup of the dedicated tunnel
+credential are organized under `secrets/development/`; the active Danny environment
+and original protected connector credential remain operating copies. Recovery-only
+configuration for the stopped Inspiron container was moved out of `.work/runtime/`
+to that store. No application build should read these files or depend on Dropbox.
+
 ## Operator commands
 
 Run Danny commands only through the existing trusted operator-controlled WSL access, after verifying the intended host/distro. Do not give coding agents SSH access or credentials. On Danny:

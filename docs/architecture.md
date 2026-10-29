@@ -56,7 +56,7 @@ Follow [Cargo package conventions](https://doc.rust-lang.org/cargo/guide/project
 | `scripts/` | Small checked development entry points |
 | `docs/` | Architecture, contributor policies, decisions, current status, operations evidence |
 
-The backend now has concrete auth, chat/history, attachment, provider and worker modules, a thin CLI, ordered migrations and verified public HTTP scenarios. Live-provider and native-client acceptance remain pending; the Flutter shell is unchanged. Document future capabilities rather than creating empty modules and pretend services. Create `examples/` and `benches/` only for an actual example or measurement.
+The backend now has concrete auth, chat/history, attachment, provider and worker modules, a thin CLI, ordered migrations and verified public HTTP scenarios. The Flutter app supplies a three-view preview shell and a real development health check; its Android shell journey passed, while authenticated native chat and live-provider acceptance remain pending. Document future capabilities rather than creating empty modules and pretend services. Create `examples/` and `benches/` only for an actual example or measurement.
 
 ## Dependency rules
 
