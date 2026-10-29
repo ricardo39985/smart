@@ -1,5 +1,18 @@
 # Backend handoff for native integration
 
+Current status (2026-10-29): the integration is activated and the development
+API/PostgreSQL have moved to Inspiron; Danny remains the build workhorse. See
+[local runtime operations](operations/local-development-api.md) and
+[move evidence](verification/2026-10-29-local-runtime-move.md). The Flutter client
+integration, native push source and subsequent scrolling fixes are committed
+through `8d27bea` (APK 0.3.4+7). Its own status and verification records govern
+client acceptance. The preparation/patch instructions below are historical;
+do not reapply the original patch to the current client checkout.
+
+For the completed Flutter patch and concrete next-chat instructions, start with
+[Frontend continuation handoff](frontend-chat-handoff.md). Backend build/activation
+status and the prepared artifact are in [Development integration update](operations/native-integration-update.md).
+
 The memory/context, projects, API-efficiency, realtime, push and DeepSeek-policy
 source is ready for the next integration phase. [API guide](api.md) and
 [OpenAPI](openapi.json) are the authoritative client contracts. The running Danny
@@ -48,3 +61,10 @@ against real PostgreSQL/pgvector on a suitable approved host, resolve failures,
 then coordinate the reviewed development deployment and native journeys. Preserve
 the continuously running Cloudflare connector; diagnose the origin relay separately
 when Danny's API is healthy and public requests return 502.
+
+## Integration source follow-up
+
+The [implementation plan](frontend-integration-plan.md) has now been followed by
+backend generation-discovery/title-search changes and a writable Flutter integration
+checkout. See the new section in [status](status.md) for actual checks and runtime
+limits. This source work does not change the running development revision.

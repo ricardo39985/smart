@@ -1,6 +1,12 @@
 # Architecture and code boundaries
 
-Status: selected product direction plus a locally verified first durable chat implementation and a running development API on Danny. Actual evidence and outstanding gates live in [status.md](status.md); the concrete protocol is [api.md](api.md) and its decisions are [ADR 0003](decisions/0003-durable-chat-api.md).
+Status: selected product direction plus a verified durable backend and a running local development API/PostgreSQL on Inspiron. Actual evidence and outstanding gates live in [status.md](status.md); the concrete protocol is [api.md](api.md) and its decisions are [ADR 0003](decisions/0003-durable-chat-api.md).
+
+Current development placement supersedes the earlier Danny runtime descriptions
+below: API/PostgreSQL now run natively on Inspiron with the existing local tunnel,
+and Danny remains the build workhorse. See [ADR 0011](decisions/0011-local-development-runtime.md)
+and [local runtime operations](operations/local-development-api.md). Production
+Debian/Lightsail direction is unchanged.
 
 ## Product boundary
 
@@ -35,7 +41,7 @@ The Rust backend lives at `/home/rick/Documents/Code/smartcindy`; the separate F
 
 The backend owns the actual API contract. Define schemas, streaming events, errors, authentication/session expiry and revocation, request IDs, cancellation, and reconnect before implementing a consumer. Generate Dart types from that real contract rather than maintaining parallel definitions. Secure device storage replaces assumptions about browser cookie persistence; provider secrets remain exclusively server-side. Do not create speculative contract code or duplicate server business rules in the client.
 
-Development hostname: `https://dev.smartcindy.app`, routed through the existing Inspiron Cloudflare user service and SSH relay to Danny's native API on Ubuntu-24.04 WSL2 at `127.0.0.1:8787`. Direct and public health/API behavior was verified 2026-10-29. This operator-controlled development runtime depends on both computers, LAN, user services and awake Windows; it is not production or an unattended availability guarantee. See [runtime operations](operations/danny-development-api.md), [tunnel operations](operations/development-tunnel.md), and [current verification](verification/2026-10-29-development-api.md).
+Development hostname: `https://dev.smartcindy.app`, routed through the existing Inspiron Cloudflare user service directly to the local native API at `127.0.0.1:8787`. PostgreSQL/pgvector runs locally in a private native userspace. Direct/public readiness and authenticated API behavior passed after the 2026-10-29 move. The runtime depends on this machine, network and user services; it is not unattended availability. Danny remains the workhorse with its existing bounded build restrictions. See [runtime operations](operations/local-development-api.md), [tunnel operations](operations/development-tunnel.md), and [move verification](verification/2026-10-29-local-runtime-move.md).
 
 Native notifications use an FCM/APNs integration when implemented. Service workers and Web Push are browser mechanisms and are not the selected native delivery path. Native user journeys use Flutter integration_test on devices/emulators; Playwright MCP remains for actual browser surfaces such as a hosted portal. iOS build and device/simulator acceptance require macOS with Xcode.
 

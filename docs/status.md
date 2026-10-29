@@ -2,6 +2,84 @@
 
 Last updated: 2026-10-29.
 
+## Backend commit review (2026-10-29)
+
+Reviewed the pending selected-head generation lookup, literal title search,
+migration 0010, contract fixture corrections, and local runtime move records.
+All 30 build inputs match the immutable backend snapshot documented by the prior
+activation. Current pinned formatting, strict all-target offline Clippy, OpenAPI
+JSON parsing, whitespace and candidate credential scans pass. The recorded
+27 real-PostgreSQL tests across seven affected suites remain the behavioral
+evidence; they were not repeated for this commit-only review. No code or running
+service was changed during review. Historical frontend/Danny handoff notes now
+point to the activated local runtime and committed client.
+
+## Local runtime move (2026-10-29)
+
+The development API and PostgreSQL now run natively on this Inspiron machine;
+the existing local Cloudflare connector reaches the API directly. Rick selected
+this move after recurring Danny SSH relay timeouts caused public 502s. Danny's
+API/database and the obsolete relay are stopped/disabled; Danny remains the build
+workhorse. The current database/roles/configuration were transferred privately,
+fully restored, and verified with matching original record counts, migrations,
+local/public readiness and authenticated no-provider route smoke. The tunnel was
+never restarted. See [operations](operations/local-development-api.md),
+[ADR 0011](decisions/0011-local-development-runtime.md) and
+[evidence](verification/2026-10-29-local-runtime-move.md). The Danny runtime sections
+below describe earlier deployment phases; local data is now authoritative.
+
+## Integration activation follow-up (2026-10-29)
+
+**Activated on Danny.** The prepared binary is running with migrations 0001–0010
+verified. All 27 tests across the seven affected PostgreSQL suites passed again
+before activation. A private database archive and previous binary were preserved;
+direct/forwarded/public readiness and authenticated no-provider route smoke passed.
+Synthetic data was removed. PostgreSQL, origin relay and tunnel kept their original
+running processes. See [deployment evidence](verification/2026-10-29-native-integration-deployment.md).
+The continuation/preparation paragraphs below record earlier phases and their
+then-current limitations; they do not describe a remaining deployment blocker.
+
+Continuation verification: all seven affected real PostgreSQL/Testcontainers suites
+now passed on the approved local Docker host: `api_efficiency_http`, `context_http`,
+`durable_chat_http`, `memory_http`, `projects_http`, `realtime_http`, and `push_http`
+(27 scenarios total). Initial failures exposed fixture mistakes: missing worker
+startup, a newest-chat assertion placed after another insertion, misplaced memory
+ownership/disable assertions, and stale settings versions after memory mutations.
+Those test fixtures were corrected; production backend source and the prepared
+binary were not changed. These passes do not establish live provider or device
+acceptance. Rick is coordinating operator activation; this continuation performed
+no remote migration, service change, or tunnel restart.
+
+The pinned locked offline development binary build passed. A stripped-debug copy,
+allowlisted matching build source, API contract and checksum manifest are prepared
+under `.work/backend-integration-20261029`. This is an unoptimized development
+artifact, not an activated release. Docker preflight remains permission-denied and
+the public readiness probe could not resolve the hostname in this session. Neither
+failure proves an unhealthy remote service. No remote database/service/tunnel was
+changed. The [operator update handoff](operations/native-integration-update.md)
+records the complete migration/build activation and rollback sequence. The
+[frontend continuation handoff](frontend-chat-handoff.md) gives the next chat the
+exact patch, completed scope, push work and native verification tasks.
+
+## Native integration contract additions (2026-10-29)
+
+Source adds authenticated selected-head generation discovery and literal
+case-insensitive chat-title search with filter-bound pagination. Migration 0010
+adds an indexed generation-attempt lookup plus pg_trgm title indexing. See
+[ADR 0010](decisions/0010-chat-head-lookup-and-title-search.md). Pinned offline
+all-target Cargo checking, Rust formatting, OpenAPI parsing and whitespace checks
+passed. Added public HTTP scenarios have not been executed against PostgreSQL in
+this phase; no runtime migration or development deployment was performed.
+
+See the [source integration handoff](verification/2026-10-29-native-integration-source.md) for exact checks and remaining gates.
+
+A corresponding Flutter implementation was prepared from `babd6ad` in a writable
+checkout because the sibling app checkout is read-only in this session. It consumes
+chat/history, images, projects, memory and resource invalidation APIs. Its source
+analysis does not establish native/live-provider acceptance. Native push remains
+client work. The existing profile-only development runtime still needs the reviewed
+new migrations/build before live integration acceptance.
+
 ## Profile refinement (2026-10-29)
 
 Verified Google name/photo claims refresh after successful sign-in or explicit

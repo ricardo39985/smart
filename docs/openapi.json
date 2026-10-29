@@ -572,6 +572,9 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "$ref": "#/components/parameters/ChatSearch"
           }
         ],
         "responses": {
@@ -760,6 +763,47 @@
             "$ref": "#/components/responses/Error"
           },
           "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/chats/{id}/generation": {
+      "get": {
+        "tags": [
+          "Generations"
+        ],
+        "summary": "Get generation for a chat head",
+        "description": "Selects the current head when head_id is omitted. An assistant head returns its generation; a user head returns its latest generation attempt, including terminal failed or cancelled attempts. A null generation means the selected head has no generation.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UuidPath"
+          },
+          {
+            "$ref": "#/components/parameters/HeadId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generation for selected head",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatGeneration"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
             "$ref": "#/components/responses/Error"
           },
           "500": {
@@ -2164,6 +2208,23 @@
           "maximum": 100,
           "default": 30
         }
+      },
+      "ChatSearch": {
+        "name": "q",
+        "in": "query",
+        "description": "Optional case-insensitive literal substring of the chat title. Trimmed and lowercased for cursor binding; at most 200 Unicode scalar values.",
+        "schema": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "HeadId": {
+        "name": "head_id",
+        "in": "query",
+        "description": "Optional message head in this chat. Defaults to the current chat head.",
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
       }
     },
     "responses": {
@@ -3396,6 +3457,25 @@
           },
           "updated_at": {
             "$ref": "#/components/schemas/DateTime"
+          }
+        }
+      },
+      "ChatGeneration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generation"
+        ],
+        "properties": {
+          "generation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Generation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       }

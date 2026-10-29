@@ -1,5 +1,12 @@
 # Danny PC build operations
 
+Current runtime placement: Danny remains the build workhorse. Rick moved the
+development API/database to Inspiron under
+[ADR 0011](../decisions/0011-local-development-runtime.md); Danny's runtime services
+and the SSH origin relay are stopped/disabled. Historical runtime references below
+do not authorize restarting that frozen database as a second writable server.
+The bounded build contract and credentials boundary remain unchanged.
+
 ## Scope and trust boundary
 
 Danny is a shared Windows PC with an existing Ubuntu-24.04 WSL2 build environment. The trusted local dispatcher remains the supported path for bounded Linux build jobs. It owns SSH authentication, host checks, resource admission, container lifecycle, and artifact verification. Coding models and jobs receive source and explicit commands, never SSH keys or the Docker socket. Danny is also the explicitly confirmed host for the separate operator-controlled native development API/database runtime; that runtime is not an arbitrary build backend. See [runtime operations](danny-development-api.md).

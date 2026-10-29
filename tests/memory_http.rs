@@ -148,8 +148,7 @@ async fn authenticated_memory_lifecycle_is_bounded_versioned_and_owner_scoped() 
             .as_array()
             .unwrap()
             .len(),
-        3,
-        "disabling memory preserves saved memories for later re-enablement"
+        0
     );
     let r = client
         .patch(format!("{memory_url}/{}", memory["id"].as_str().unwrap()))
@@ -229,14 +228,14 @@ async fn authenticated_memory_lifecycle_is_bounded_versioned_and_owner_scoped() 
     let r = client
         .patch(&settings_url)
         .bearer_auth(&token)
-        .json(&json!({"version":2,"enabled":false}))
+        .json(&json!({"version":4,"enabled":false}))
         .send()
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(
         r.json::<Value>().await.unwrap(),
-        json!({"enabled":false,"version":3})
+        json!({"enabled":false,"version":5})
     );
     assert_eq!(
         client
@@ -255,20 +254,22 @@ async fn authenticated_memory_lifecycle_is_bounded_versioned_and_owner_scoped() 
         .send()
         .await
         .unwrap();
-    assert!(
+    assert_eq!(
         r.json::<Value>().await.unwrap()["items"]
             .as_array()
             .unwrap()
-            .is_empty()
+            .len(),
+        3,
+        "disabling memory preserves saved memories for later re-enablement"
     );
     let r = client
         .patch(&settings_url)
         .bearer_auth(&token)
-        .json(&json!({"version":3,"enabled":true}))
+        .json(&json!({"version":5,"enabled":true}))
         .send()
         .await
         .unwrap();
-    assert_eq!(r.json::<Value>().await.unwrap()["version"], 4);
+    assert_eq!(r.json::<Value>().await.unwrap()["version"], 6);
 
     let id = memory["id"].as_str().unwrap();
     let r = client

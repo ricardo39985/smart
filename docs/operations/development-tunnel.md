@@ -1,5 +1,13 @@
 # Local development hostname
 
+Current origin placement (2026-10-29): the API and PostgreSQL run natively on this
+Inspiron machine. Cloudflare reaches the local API directly at the same
+`127.0.0.1:8787`; the obsolete Danny SSH relay is disabled. The tunnel retained its
+original PID and configuration throughout the move. Earlier relay descriptions
+below are historical. See [local operations](local-development-api.md),
+[ADR 0011](../decisions/0011-local-development-runtime.md) and
+[move evidence](../verification/2026-10-29-local-runtime-move.md).
+
 Confirmed by the user: **`https://dev.smartcindy.app`**. The initially supplied `.com` hostname was corrected to `.app` after checking the registered domain and receiving explicit confirmation.
 
 ## Scope and resources

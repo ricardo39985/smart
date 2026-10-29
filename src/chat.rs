@@ -113,6 +113,7 @@ pub(crate) struct Listing {
     cursor: Option<String>,
     archived: Option<bool>,
     project_id: Option<Uuid>,
+    q: Option<String>,
 }
 pub(crate) async fn list(
     State(app): State<Application>,
@@ -121,6 +122,18 @@ pub(crate) async fn list(
 ) -> Result<Json<Value>> {
     let limit = http::limit(q.limit, 30)?;
     let archived = q.archived.unwrap_or(false);
+    if q.q.as_ref().is_some_and(|s| s.chars().count() > 200) {
+        return Err(Error::bad());
+    }
+    let search =
+        q.q.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_lowercase);
+    let pattern = search.as_ref().map(|s| {
+        let escaped = s.replace('!', "!!").replace('%', "!%").replace('_', "!_");
+        format!("%{escaped}%")
+    });
     if let Some(project) = q.project_id {
         sqlx::query("SELECT id FROM projects WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL")
             .bind(project)
@@ -131,7 +144,7 @@ pub(crate) async fn list(
     }
     let (high, before) = if let Some(s) = q.cursor {
         let c = http::decode(&s, "chats", auth.user, None)?;
-        if c.archived != Some(archived) || c.project_id != q.project_id {
+        if c.archived != Some(archived) || c.project_id != q.project_id || c.search != search {
             return Err(Error::bad());
         }
         (c.high, c.before)
@@ -145,8 +158,8 @@ pub(crate) async fn list(
         tx.commit().await?;
         (high, high)
     };
-    let mut rows = sqlx::query_as::<_,Chat>("SELECT * FROM chats WHERE owner_id=$1 AND archived=$2 AND deleted_at IS NULL AND seq<=$3 AND seq<=$4 AND ($6::uuid IS NULL OR project_id=$6) ORDER BY seq DESC LIMIT $5")
-        .bind(auth.user).bind(archived).bind(high).bind(before).bind(limit+1).bind(q.project_id).fetch_all(&app.0.pool).await?;
+    let mut rows = sqlx::query_as::<_,Chat>("SELECT * FROM chats WHERE owner_id=$1 AND archived=$2 AND deleted_at IS NULL AND seq<=$3 AND seq<=$4 AND ($6::uuid IS NULL OR project_id=$6) AND ($7::text IS NULL OR lower(title) LIKE $7 ESCAPE '!') ORDER BY seq DESC LIMIT $5")
+        .bind(auth.user).bind(archived).bind(high).bind(before).bind(limit+1).bind(q.project_id).bind(&pattern).fetch_all(&app.0.pool).await?;
     let next = if rows.len() as i64 > limit {
         rows.pop();
         rows.last().map(|r| {
@@ -157,6 +170,7 @@ pub(crate) async fn list(
                 chat: None,
                 archived: Some(archived),
                 project_id: q.project_id,
+                search: search.clone(),
                 high,
                 before: r.seq - 1,
                 head: None,
@@ -627,6 +641,7 @@ pub(crate) async fn messages(
             chat: Some(chat),
             archived: None,
             project_id: None,
+            search: None,
             high: 0,
             before: 0,
             head,
@@ -692,6 +707,7 @@ pub(crate) async fn branches(
             chat: Some(chat),
             archived: None,
             project_id: None,
+            search: None,
             high,
             before: last_seq - 1,
             head: None,
@@ -700,14 +716,69 @@ pub(crate) async fn branches(
     });
     Ok(Json(json!({"items":items,"next_cursor":next})))
 }
+fn generation_json(id: Uuid, row: &sqlx::postgres::PgRow) -> Value {
+    json!({"generation_id":id,"user_message_id":row.get::<Uuid,_>("user_message_id"),"status":row.get::<String,_>("status"),"result_message_id":row.get::<Option<Uuid>,_>("result_message_id"),"error":row.get::<Option<String>,_>("error"),"usage":row.get::<Option<Value>,_>("usage"),"context":row.get::<Option<Value>,_>("context"),"created_at":row.get::<chrono::DateTime<chrono::Utc>,_>("created_at"),"updated_at":row.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")})
+}
+
 pub(crate) async fn generation(
     State(app): State<Application>,
     auth: Auth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>> {
     let row=sqlx::query("SELECT g.* FROM generations g JOIN chats c ON c.id=g.chat_id WHERE g.id=$1 AND g.owner_id=$2 AND c.owner_id=$2 AND c.deleted_at IS NULL").bind(id).bind(auth.user).fetch_optional(&app.0.pool).await?.ok_or_else(Error::missing)?;
+    Ok(Json(generation_json(id, &row)))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChatGenerationQuery {
+    head_id: Option<Uuid>,
+}
+
+pub(crate) async fn chat_generation(
+    State(app): State<Application>,
+    auth: Auth,
+    Path(chat): Path<Uuid>,
+    Query(query): Query<ChatGenerationQuery>,
+) -> Result<Json<Value>> {
+    let current_head: Option<Uuid> = sqlx::query_scalar(
+        "SELECT head_id FROM chats WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL",
+    )
+    .bind(chat)
+    .bind(auth.user)
+    .fetch_optional(&app.0.pool)
+    .await?
+    .ok_or_else(Error::missing)?;
+    let head = query.head_id.or(current_head);
+    let Some(head) = head else {
+        return Ok(Json(json!({"generation":null})));
+    };
+    let message = sqlx::query("SELECT m.role,m.generation_id FROM messages m JOIN chats c ON c.id=m.chat_id WHERE m.id=$1 AND m.chat_id=$2 AND c.owner_id=$3 AND c.deleted_at IS NULL")
+        .bind(head)
+        .bind(chat)
+        .bind(auth.user)
+        .fetch_optional(&app.0.pool)
+        .await?
+        .ok_or_else(Error::missing)?;
+    let role: String = message.get("role");
+    let row = match role.as_str() {
+        "user" => {
+            sqlx::query("SELECT g.* FROM generations g JOIN chats c ON c.id=g.chat_id WHERE g.user_message_id=$1 AND g.chat_id=$2 AND g.owner_id=$3 AND c.owner_id=$3 AND c.deleted_at IS NULL ORDER BY g.created_at DESC,g.id DESC LIMIT 1")
+                .bind(head).bind(chat).bind(auth.user).fetch_optional(&app.0.pool).await?
+        }
+        "assistant" => {
+            let generation_id: Option<Uuid> = message.get("generation_id");
+            if let Some(id) = generation_id {
+                sqlx::query("SELECT g.* FROM generations g JOIN chats c ON c.id=g.chat_id WHERE g.id=$1 AND g.chat_id=$2 AND g.owner_id=$3 AND c.owner_id=$3 AND c.deleted_at IS NULL")
+                    .bind(id).bind(chat).bind(auth.user).fetch_optional(&app.0.pool).await?
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
     Ok(Json(
-        json!({"generation_id":id,"user_message_id":row.get::<Uuid,_>("user_message_id"),"status":row.get::<String,_>("status"),"result_message_id":row.get::<Option<Uuid>,_>("result_message_id"),"error":row.get::<Option<String>,_>("error"),"usage":row.get::<Option<Value>,_>("usage"),"context":row.get::<Option<Value>,_>("context"),"created_at":row.get::<chrono::DateTime<chrono::Utc>,_>("created_at"),"updated_at":row.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")}),
+        json!({"generation":row.as_ref().map(|row| generation_json(row.get("id"),row))}),
     ))
 }
 pub(crate) async fn cancel(

@@ -1,0 +1,19 @@
+[Unit]
+Description=SmartCindy local native development PostgreSQL
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/home/rick/.local/share/smartcindy-dev/bin/pg-native postgres -D /var/lib/postgresql/data -c listen_addresses=127.0.0.1 -c port=55433 -c unix_socket_directories=/tmp -c shared_buffers=64MB -c max_connections=40 -c work_mem=4MB -c jit=off
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=30
+CPUQuota=100%
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=128
+UMask=0077
+
+[Install]
+WantedBy=default.target

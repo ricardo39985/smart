@@ -8,7 +8,7 @@ This repository contains the Rust backend for SmartCindy: native bearer authenti
 
 Read the contributor [instructions](AGENTS.md), [architecture](docs/architecture.md), [testing policy](docs/testing.md), [development workflow](docs/development.md), [status](docs/status.md), [decisions](docs/decisions/README.md), and [Danny build operations](docs/operations/danny-build.md).
 
-The development API is running on Danny's existing Ubuntu-24.04 WSL2 and is reachable at `https://dev.smartcindy.app` through the existing Inspiron connector and SSH relay. This operator-controlled development runtime depends on both machines and awake Windows; it is not production or an unattended service. See [runtime operations](docs/operations/danny-development-api.md), [tunnel lifecycle](docs/operations/development-tunnel.md), and [verified status](docs/status.md).
+The development API and PostgreSQL run natively on this Inspiron machine and are reachable at `https://dev.smartcindy.app` through the existing local connector. Danny remains the build workhorse; no SSH relay is required for serving. This development runtime depends on this machine and the user's login session; it is not production or an unattended service. See [runtime operations](docs/operations/local-development-api.md), [tunnel lifecycle](docs/operations/development-tunnel.md), and [verified status](docs/status.md).
 
 Production targets **Debian on Lightsail with native services and no Docker deployment**. Docker remains useful for development builds and the PostgreSQL integration tests. See [ADR 0004](docs/decisions/0004-debian-native-deployment.md). No Debian instance has been provisioned or deployed.
 

@@ -1,0 +1,24 @@
+[Unit]
+Description=SmartCindy local native development API
+Requires=smartcindy-local-postgres.service
+After=smartcindy-local-postgres.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rick/.local/share/smartcindy-dev
+EnvironmentFile=/home/rick/.config/smartcindy-dev/dev.env
+ExecStart=/home/rick/.local/share/smartcindy-dev/bin/smartcindy serve
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+NoNewPrivileges=true
+CPUQuota=200%
+MemoryMax=1G
+MemorySwapMax=0
+TasksMax=256
+UMask=0077
+
+[Install]
+WantedBy=default.target

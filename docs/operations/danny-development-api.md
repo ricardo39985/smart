@@ -1,5 +1,20 @@
 # Danny development API runtime
 
+Historical runtime: superseded by the [local development server](local-development-api.md)
+under [ADR 0011](../decisions/0011-local-development-runtime.md). Danny's API/database
+services are stopped and disabled; their data/backups remain preserved. The local
+SSH origin relay is disabled. Danny remains the build workhorse. Local data is
+authoritative after cutover; do not restart the frozen remote database for traffic.
+
+Current integration update: the prepared binary with SHA-256
+`421e945352d5d319c1c7e3f393385dba10dd21b5ff61bae500d3a139b09f08be`
+and migrations 0001–0010 are active as of 2026-10-29. The prior profile binary and
+database archive are preserved at `/opt/smartcindy/dev/backups/integration-20261029`.
+Direct/forwarded/public readiness and authenticated no-provider smoke passed;
+PostgreSQL, origin relay and tunnel were not restarted. See
+[integration deployment evidence](../verification/2026-10-29-native-integration-deployment.md).
+The dated baseline verification sections below remain historical evidence.
+
 Last verified: 2026-10-29. This is an operator-controlled development service on Danny's existing Ubuntu-24.04 WSL2. It is not production and does not enable arbitrary native build jobs. The bounded build runner remains unchanged; its `noexec` workspace and lack of a Docker socket still prevent native test execution and Testcontainers.
 
 ## Runtime and route

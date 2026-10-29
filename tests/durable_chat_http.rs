@@ -597,6 +597,104 @@ async fn authenticated_durable_turn_replay_retry_and_scoped_ownership() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_head_generation_lookup_stays_on_the_selected_message() {
+    let h = Harness::new().await;
+    let owner = h.account("head-owner@example.test").await;
+    let other = h.account("head-other@example.test").await;
+    let chat = h.create(&owner, "head lookup").await;
+    let chat_id = id(&chat, "id");
+    let worker = h.app.run_worker();
+    assert_eq!(
+        h.get(&owner, &format!("/v1/chats/{chat_id}/generation"))
+            .await["generation"],
+        Value::Null
+    );
+    let accepted = h.submit(&owner, &chat_id, turn("hello", None)).await;
+    let generation_id = id(&accepted, "generation_id");
+    let user_message_id = id(&accepted, "user_message_id");
+    let user_generation = h
+        .get(
+            &owner,
+            &format!("/v1/chats/{chat_id}/generation?head_id={user_message_id}"),
+        )
+        .await;
+    assert_eq!(
+        user_generation["generation"]["generation_id"],
+        generation_id
+    );
+    h.terminal(&owner, &generation_id).await;
+    let current = h
+        .get(&owner, &format!("/v1/chats/{chat_id}/generation"))
+        .await;
+    assert_eq!(current["generation"]["generation_id"], generation_id);
+    assert_eq!(current["generation"]["status"], "completed");
+    let messages = h
+        .get(&owner, &format!("/v1/chats/{chat_id}/messages"))
+        .await;
+    let assistant_id = messages["items"][0]["id"].as_str().unwrap();
+    let assistant_generation = h
+        .get(
+            &owner,
+            &format!("/v1/chats/{chat_id}/generation?head_id={assistant_id}"),
+        )
+        .await;
+    assert_eq!(
+        assistant_generation["generation"]["generation_id"],
+        generation_id
+    );
+    let regeneration = h
+        .client
+        .post(format!(
+            "{}/v1/chats/{chat_id}/messages/{user_message_id}/regenerations",
+            h.base
+        ))
+        .bearer_auth(&owner)
+        .json(&json!({"request_id":Uuid::new_v4(),"output":"text"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(regeneration.status(), 202);
+    let second_generation: Value = regeneration.json().await.unwrap();
+    let second_generation_id = id(&second_generation, "generation_id");
+    h.terminal(&owner, &second_generation_id).await;
+    let latest_user_attempt = h
+        .get(
+            &owner,
+            &format!("/v1/chats/{chat_id}/generation?head_id={user_message_id}"),
+        )
+        .await;
+    assert_eq!(
+        latest_user_attempt["generation"]["generation_id"],
+        second_generation_id
+    );
+    let old_assistant_branch = h
+        .get(
+            &owner,
+            &format!("/v1/chats/{chat_id}/generation?head_id={assistant_id}"),
+        )
+        .await;
+    assert_eq!(
+        old_assistant_branch["generation"]["generation_id"],
+        generation_id
+    );
+    let foreign = h.create(&other, "foreign head").await;
+    let foreign_head = id(&foreign, "id");
+    let response = h
+        .client
+        .get(format!(
+            "{}/v1/chats/{chat_id}/generation?head_id={foreign_head}",
+            h.base
+        ))
+        .bearer_auth(&owner)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    assert_eq!(h.sim.requests.lock().unwrap().len(), 2);
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chat_pagination_snapshot_and_public_cursor_properties() {
     use proptest::{
         prelude::*,
@@ -611,6 +709,35 @@ async fn chat_pagination_snapshot_and_public_cursor_properties() {
     let first = h.get(&a, "/v1/chats?limit=1").await;
     assert_eq!(first["items"][0]["id"], newest["id"]);
     let inserted = h.create(&a, "new insertion").await;
+    assert_eq!(
+        h.get(&a, "/v1/chats?limit=1").await["items"][0]["id"],
+        inserted["id"]
+    );
+    let search = h.get(&a, "/v1/chats?q=%20EST%20&limit=1").await;
+    assert_eq!(search["items"][0]["id"], newest["id"]);
+    let search_cursor = search["next_cursor"].as_str().unwrap();
+    let search_next = h
+        .get(
+            &a,
+            &format!("/v1/chats?q=est&limit=1&cursor={search_cursor}"),
+        )
+        .await;
+    assert_eq!(search_next["items"][0]["id"], oldest["id"]);
+    let changed_filter = h
+        .client
+        .get(format!(
+            "{}/v1/chats?q=literal&cursor={search_cursor}",
+            h.base
+        ))
+        .bearer_auth(&a)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(changed_filter.status(), 400);
+    let literal = h.create(&a, "100% literal").await;
+    let literal_search = h.get(&a, "/v1/chats?q=%25&limit=10").await;
+    assert_eq!(literal_search["items"].as_array().unwrap().len(), 1);
+    assert_eq!(literal_search["items"][0]["id"], literal["id"]);
     let cursor = first["next_cursor"].as_str().unwrap();
     let second = h
         .get(&a, &format!("/v1/chats?limit=1&cursor={cursor}"))
@@ -627,10 +754,6 @@ async fn chat_pagination_snapshot_and_public_cursor_properties() {
         .await;
     assert_eq!(third["items"][0]["id"], oldest["id"]);
     assert!(third["next_cursor"].is_null());
-    assert_eq!(
-        h.get(&a, "/v1/chats?limit=1").await["items"][0]["id"],
-        inserted["id"]
-    );
     assert_eq!(
         h.client
             .get(format!("{}/v1/chats?archived=true&cursor={cursor}", h.base))

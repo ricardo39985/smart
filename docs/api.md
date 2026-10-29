@@ -69,10 +69,16 @@ must be 12..1024 bytes. No recovery, email ownership verification, account delet
   per owner and fingerprinted with the raw title and project ID. Repeating it with changed
   input returns 409; replaying a deleted chat returns 410. Title is at most 200 Unicode scalar
   values (empty permitted). An included project must be active and owned by the caller.
-- `GET /chats?limit=30&cursor=...&archived=false` -> `{items,next_cursor}`. Limit 1..100.
+- `GET /chats?limit=30&cursor=...&archived=false&q=...` -> `{items,next_cursor}`. Limit 1..100.
   Sort is immutable creation sequence descending, **not updated_at**. A first-page
   owner-scoped high watermark excludes later inserts. Cursors are bounded (1024 chars),
-  opaque base64url, typed/versioned and owner/filter scoped; wrong scope is 400.
+  opaque base64url, typed/versioned and owner/filter scoped; wrong scope is 400. Optional
+  `q` searches titles by case-insensitive literal substring (percent, underscore and exclamation
+  mark are ordinary characters), after trimming and lowercasing. It is limited to 200 Unicode scalar
+  values; a blank value behaves as no search. The normalized search is bound into the cursor,
+  so changing or removing it during traversal returns 400. Search does not change creation
+  ordering. A partial GIN trigram index supports substring matching; one- and two-character
+  searches may still scan candidate chat rows because they contain too few trigrams.
   No total count/OFFSET. Renaming does not move rows. Archival/deletion changes membership;
   static traversal with concurrent inserts neither repeats nor skips preexisting items.
 - `GET /chats/{id}` -> owned chat metadata, including current version and head, without scanning chat pages.
@@ -245,6 +251,12 @@ owner's project existence.
   nonnegative; unknown counts are omitted. Raw provider-specific usage fields are not exposed.
   `context` is null until assembly, then contains only bounded retrieval counts/mode and
   timing metadata, never prompt text.
+- `GET /chats/{id}/generation?head_id=UUID` -> `{generation: Generation|null}`. An omitted
+  `head_id` selects the chat's current head; an explicit ID must be a message in that owned,
+  live chat. An assistant head returns that assistant message's generation. A user head returns
+  its latest generation attempt, including failed/cancelled terminal attempts; this keeps an
+  older branch anchored to its selected message. A head without an attempt (or an empty chat)
+  returns `generation:null`. The lookup never resubmits provider work.
 - `POST /generations/{id}/cancel` -> `{generation_id,status}`; idempotent for terminal states.
   A late cancel never overwrites a completed/failed result.
 - `GET /generations/{id}/events?after=N` or header `Last-Event-ID: N` -> `text/event-stream`.

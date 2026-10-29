@@ -159,6 +159,7 @@ pub(crate) fn router(app: Application) -> Router {
             "/v1/chats/{id}",
             get(chat::get).patch(chat::update).delete(chat::remove),
         )
+        .route("/v1/chats/{id}/generation", get(chat::chat_generation))
         .route("/v1/chats/{id}/messages", get(chat::messages))
         .route("/v1/chats/{id}/branches", get(chat::branches))
         .route(
@@ -216,6 +217,8 @@ pub(crate) struct Cursor {
     pub archived: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<uuid::Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
     pub high: i64,
     pub before: i64,
     pub head: Option<uuid::Uuid>,
