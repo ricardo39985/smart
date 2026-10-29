@@ -1,4 +1,4 @@
-use crate::{Application, attachments, auth, chat};
+use crate::{Application, attachments, auth, chat, identity};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
@@ -84,8 +84,37 @@ async fn envelope(request: Request, next: Next) -> Response {
 pub(crate) fn router(app: Application) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .route("/v1/sessions", post(auth::login))
+        .route(
+            "/v1/sessions",
+            post(auth::login).layer(DefaultBodyLimit::max(8192)),
+        )
         .route("/v1/sessions/current", delete(auth::logout))
+        .route(
+            "/v1/accounts",
+            post(identity::signup).layer(DefaultBodyLimit::max(8192)),
+        )
+        .route(
+            "/v1/account",
+            get(identity::account)
+                .patch(identity::profile)
+                .layer(DefaultBodyLimit::max(8192)),
+        )
+        .route("/v1/auth/methods", get(identity::methods))
+        .route(
+            "/v1/auth/exchange",
+            post(identity::exchange).layer(DefaultBodyLimit::max(8192)),
+        )
+        .route(
+            "/v1/auth/{provider}/start",
+            post(identity::start).layer(DefaultBodyLimit::max(8192)),
+        )
+        .route(
+            "/v1/auth/{provider}/callback",
+            get(identity::google_callback)
+                .post(identity::apple_callback)
+                .layer(DefaultBodyLimit::max(8192)),
+        )
+        .route_layer(DefaultBodyLimit::max(16 * 1024))
         .route("/v1/capabilities", get(capabilities))
         .route("/v1/chats", get(chat::list).post(chat::create))
         .route(

@@ -11,8 +11,9 @@ expired or revoked bearer; 404 absent or not owned (indistinguishable); 409 vers
 idempotency, reference or active-generation conflict; 413 bytes/quota exceeded; 429
 login/admission/decode capacity; 503 provider not configured; 500 storage/internal fault.
 Every response is `Cache-Control: no-store`. No wildcard CORS or trusted user-ID header.
-All product routes except login require `Authorization: Bearer TOKEN`, including image downloads
-and capabilities. Native clients must use an HTTP streaming client that can set headers,
+Chat, attachments, account profile, logout and capabilities require `Authorization: Bearer TOKEN`.
+Signup, login, auth methods, provider start/callback and proof exchange do not; linking start additionally requires a bearer session.
+Every auth response is no-store. Native clients must use an HTTP streaming client that can set headers,
 not browser EventSource assumptions. Never put bearer tokens in URLs.
 
 ## Operational readiness
@@ -30,14 +31,21 @@ database details. This does not verify paid providers or workers. Root `/` retur
   login evicts the oldest excess sessions. Login has two concurrent Argon2id jobs and
   a global 16 attempts/second/process bound (including nonexistent accounts). An edge
   per-IP/account abuse policy and multi-process rate-limit coordination remain launch gates.
-- `DELETE /sessions/current` -> 204; subsequent use is 401. No public registration.
+- `DELETE /sessions/current` -> 204; subsequent use is 401.
+- `POST /accounts {email,password,display_name}` -> 201, the same session shape. Password is 12..1024 bytes; normalized email must be at most 254 bytes with valid simple syntax; trimmed display name is 1..80 characters. Existing email -> 409 `account_exists` without revealing methods. No email verification or password recovery is offered.
+- `GET /account` -> `{id,email,display_name,methods}`. Methods list contains only actual identities (password first, Google then Apple). `PATCH /account {display_name}` updates the name and returns the same account shape. A provider-only account has no usable password.
+- `GET /auth/methods` (public) -> `{password:true,google:boolean,apple:boolean}` based on configured credentials; these are not provider-health indicators.
+Server configuration: `AUTH_ORIGIN` is exactly `https://dev.smartcindy.app` or `https://smartcindy.app`, paired with `AUTH_APP_SCHEME=smartcindy-dev` or `smartcindy` respectively. Google requires both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Apple requires `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID` and an owner-protected `APPLE_PRIVATE_KEY_FILE` read only at startup. Partial configuration fails startup; neither the CLI nor the HTTP client can select provider endpoints. Configure different client IDs, callback registrations and signing material for development and production. Actual provider compatibility and native client acceptance are separate release gates.
+- `POST /auth/{google|apple}/start {challenge,link?,confirm?,password?}` -> `{authorization_url,attempt_id}`. Challenge is the base64url/no-padding SHA-256 native PKCE challenge. A five-minute attempt holds a random hashed state and nonce; Google also uses a server-side PKCE verifier. Disabled provider -> 503 `provider_unavailable`. Link mode requires a valid bearer, `confirm:true`, and the existing account's password if it has one; provider-only linking requires a session created in the last five minutes. Missing confirmation -> 400; invalid credentials -> 401. The native client must separately explain and confirm that linking will add a sign-in method to the current account; matching email never authorizes linking.
+- Google redirects to `GET /auth/google/callback?state=...&code=...` (or `error`); Apple submits `POST /auth/apple/callback` as `application/x-www-form-urlencoded`. Only an unclaimed matching five-minute state is accepted. After token redemption and ID-token signature/issuer/audience/expiry/nonce verification, the server responds 303 to the **fixed** dev `smartcindy-dev://auth/callback?code=...` or production `smartcindy://auth/callback?code=...` scheme. This code is a two-minute single-use completion proof, **not** a bearer session; no tokens appear in redirect URLs.
+- `POST /auth/exchange {code,verifier}` verifies the original S256 challenge under a transaction lock and consumes the completion once. Wrong verifier does not consume it. Successful sign-in -> 200 session shape; successful linking -> 200 account shape plus `linked:true`, without changing the original session. Same-email signed-out collision -> 409 `account_link_required`; subject already linked elsewhere -> 409 `identity_already_linked`; cancelled provider -> 400 `provider_cancelled`. A provider-only account can reauthenticate by its provider subject even if Apple omits email on later grants. No identity is created before successful native proof exchange.
 - `GET /capabilities` -> `{text:boolean,image_input:boolean,image_output:boolean,image_editing:boolean}` from
   configured adapter keys, not a live provider health guarantee. Image input is available
   with either vision or editing; image editing follows image-output configuration. No model names/secrets.
 
 Operator provisioning: `smartcindy provision-user EMAIL`, password from bounded stdin
 or protected `SMARTCINDY_PROVISION_PASSWORD` environment, never an argument. Passwords
-must be 12..1024 bytes. No recovery/email/signup/billing is implemented.
+must be 12..1024 bytes. No recovery, email ownership verification, account deletion or billing is implemented.
 
 ## Chats and pagination
 
@@ -201,7 +209,7 @@ Stable message IDs, older-page prepend/reverse pagination preserving scroll anch
 incremental SSE deltas (no full-history reread), deduplicated IDs, separate cursor/cache
 per selected branch, bounded message window/image cache and secure bearer storage are
 native acceptance requirements. Generate consumer types from this real contract after
-review. Native devices/emulators, iOS/macOS, memory/research, email/signup, billing and
+review. Native devices/emulators, iOS/macOS, memory/research, email verification/recovery, billing and
 operator retention/reconciliation tooling are separate pending slices.
 
 ## Machine-readable contract

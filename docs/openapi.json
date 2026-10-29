@@ -40,6 +40,20 @@
     }
   ],
   "paths": {
+    "/v1/accounts": {
+      "post": {"tags":["Sessions"],"security":[],"summary":"Create a password account and session","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["email","password","display_name"],"properties":{"email":{"type":"string"},"password":{"type":"string","minLength":12},"display_name":{"type":"string"}}}}}},"responses":{"201":{"description":"Session created","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Session"}}}},"400":{"$ref":"#/components/responses/Error"},"409":{"$ref":"#/components/responses/Error"},"429":{"$ref":"#/components/responses/Error"}}}
+    },
+    "/v1/account": {
+      "get":{"tags":["Sessions"],"summary":"Current account and actual sign-in methods","responses":{"200":{"description":"Account","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Account"}}}},"401":{"$ref":"#/components/responses/Error"}}},
+      "patch":{"tags":["Sessions"],"summary":"Update account name","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["display_name"],"properties":{"display_name":{"type":"string"}}}}}},"responses":{"200":{"description":"Updated account","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Account"}}}},"400":{"$ref":"#/components/responses/Error"},"401":{"$ref":"#/components/responses/Error"}}}
+    },
+    "/v1/auth/methods": {"get":{"tags":["Sessions"],"security":[],"summary":"Discover configured sign-in methods","responses":{"200":{"description":"Methods","content":{"application/json":{"schema":{"type":"object","required":["password","google","apple"],"properties":{"password":{"type":"boolean"},"google":{"type":"boolean"},"apple":{"type":"boolean"}}}}}}}}},
+    "/v1/auth/{provider}/start": {"post":{"tags":["Sessions"],"security":[],"summary":"Start native proof-bound provider authentication","parameters":[{"name":"provider","in":"path","required":true,"schema":{"type":"string","enum":["google","apple"]}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["challenge"],"properties":{"challenge":{"type":"string"},"link":{"type":"boolean"},"confirm":{"type":"boolean"},"password":{"type":"string"}}}}}},"responses":{"200":{"description":"Provider authorization URL and attempt","content":{"application/json":{"schema":{"type":"object","required":["authorization_url","attempt_id"],"properties":{"authorization_url":{"type":"string"},"attempt_id":{"type":"string","format":"uuid"}}}}}},"400":{"$ref":"#/components/responses/Error"},"401":{"$ref":"#/components/responses/Error"},"503":{"$ref":"#/components/responses/Error"}}}},
+    "/v1/auth/{provider}/callback": {
+      "get":{"tags":["Sessions"],"security":[],"summary":"Google fixed OAuth callback","parameters":[{"name":"provider","in":"path","required":true,"schema":{"type":"string","enum":["google"]}},{"name":"state","in":"query","schema":{"type":"string"}},{"name":"code","in":"query","schema":{"type":"string"}},{"name":"error","in":"query","schema":{"type":"string"}}],"responses":{"303":{"description":"Fixed native scheme redirect carrying only one-time proof code"},"400":{"$ref":"#/components/responses/Error"}}},
+      "post":{"tags":["Sessions"],"security":[],"summary":"Apple form_post fixed OAuth callback","parameters":[{"name":"provider","in":"path","required":true,"schema":{"type":"string","enum":["apple"]}}],"requestBody":{"required":true,"content":{"application/x-www-form-urlencoded":{"schema":{"type":"object","properties":{"state":{"type":"string"},"code":{"type":"string"},"error":{"type":"string"}}}}}},"responses":{"303":{"description":"Fixed native scheme redirect carrying only one-time proof code"},"400":{"$ref":"#/components/responses/Error"}}}
+    },
+    "/v1/auth/exchange": {"post":{"tags":["Sessions"],"security":[],"summary":"Consume bound native proof once","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["code","verifier"],"properties":{"code":{"type":"string"},"verifier":{"type":"string"}}}}}},"responses":{"200":{"description":"Session or linked account","content":{"application/json":{"schema":{"oneOf":[{"$ref":"#/components/schemas/Session"},{"$ref":"#/components/schemas/Account"}]}}}},"400":{"$ref":"#/components/responses/Error"},"409":{"$ref":"#/components/responses/Error"}}}},
     "/v1/sessions": {
       "post": {
         "tags": [
@@ -934,6 +948,7 @@
       }
     },
     "schemas": {
+      "Account": {"type":"object","required":["id","email","display_name","methods"],"properties":{"id":{"$ref":"#/components/schemas/Uuid"},"email":{"type":"string"},"display_name":{"type":"string"},"methods":{"type":"array","items":{"type":"string","enum":["password","google","apple"]}},"linked":{"type":"boolean"}}},
       "Error": {
         "type": "object",
         "additionalProperties": false,

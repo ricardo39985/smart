@@ -8,7 +8,7 @@ Production now targets native services on Debian Lightsail, with no Docker or Co
 
 ## Implemented and locally verified
 
-The Rust backend now implements native bearer sessions with operator-provisioned accounts;
+The Rust backend now implements local signup, editable account names, Google/Apple identity authentication with explicit linking, and revocable native bearer sessions;
 chat create/list/read/rename/archive/delete; bounded cursor pagination; immutable message
 editing, regeneration and branches; private validated image upload/download and image
 editing/generation; durable request idempotency, queued/fenced workers, cancellation,
@@ -76,12 +76,12 @@ library rows, retained local drafts and a real development health consumer. Its 
 checks and native Android shell/readiness journey passed on Inspiron under the user's
 explicit local-Android authorization. It builds without private files or this checkout.
 Authenticated live chat pagination, stable IDs, anchored older-page loading, per-branch
-cursors, bounded history/image caches, secure sessions and streaming replay remain client
-work. iOS/macOS/Xcode compilation and native chat acceptance remain pending. See the
+cursors, bounded history/image caches, streaming replay remain client
+work. Secure account sessions and local login now work; see the authentication verification below. iOS/macOS/Xcode compilation and native chat acceptance remain pending. See the
 [client status](https://github.com/ricardo39985/smartcindy-app/blob/main/docs/status.md).
 No browser frontend or Playwright acceptance is claimed.
 
-Public signup/email/recovery, subscription billing/distribution review, Rig/rig-memory/mem0-rs,
+Email verification/recovery, account erasure, subscription billing/distribution review, Rig/rig-memory/mem0-rs,
 personal memory/embeddings, research/search and reminders/push remain separate product
 slices. Selected memory libraries are deferred, not replaced by another transcript store.
 
@@ -91,3 +91,22 @@ required; this is not an unattended availability guarantee. Danny's bounded buil
 unchanged and still cannot execute native tests/Testcontainers; no mount/socket workaround was
 used. The API binary was built on Inspiron, not Danny. No GitHub Actions or replacement hosted
 CI was introduced.
+
+## Authentication and signing slice (2026-10-29)
+
+The development API on Danny now has local account creation/name editing and Google/Apple
+provider configuration. The mobile app uses secure device sessions, a system-browser provider
+flow, explicit linking and persisted appearance. Stable Android development/upload signing
+identities and Apple development/distribution certificates are stored privately in Dropbox.
+No production host, store release or hosted CI was created.
+
+Passed: required Rust checks (16 tests across seven suites), real PostgreSQL identity
+contracts, eight seeded completion-proof cases, four focused mutations caught, and the
+native Android local signup/edit/logout/login journey through Cloudflare to Danny.
+The profile-dialog disposal bug and logout/pending-link vulnerability were reproduced
+before fixes, with unchanged regressions passing afterward.
+
+Live Google/Apple user journeys, public Google OAuth publishing/branding, macOS/Xcode
+signing/device verification, email verification/recovery, abuse controls at the edge and
+account deletion remain acceptance/release gates. Production provider registrations reserve
+callbacks only. [Evidence and limitations](verification/2026-10-29-authentication.md).

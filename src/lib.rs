@@ -3,6 +3,7 @@ mod attachments;
 mod auth;
 mod chat;
 mod http;
+mod identity;
 mod provider;
 mod worker;
 
@@ -18,10 +19,33 @@ pub struct ProviderConfig {
     /// Explicit local protocol simulator, disabled in normal operation.
     pub local_simulator: Option<String>,
 }
+/// Explicit provider configuration; disabled unless credentials and fixed origin are supplied.
+#[derive(Clone, Default)]
+pub struct IdentityConfig {
+    pub origin: Option<String>,
+    pub app_scheme: Option<String>,
+    pub google: Option<GoogleIdentity>,
+    pub apple: Option<AppleIdentity>,
+    /// Only library callers may enable an explicitly configured loopback protocol simulator.
+    pub local_simulator: Option<String>,
+}
+#[derive(Clone)]
+pub struct GoogleIdentity {
+    pub client_id: String,
+    pub client_secret: String,
+}
+#[derive(Clone)]
+pub struct AppleIdentity {
+    pub client_id: String,
+    pub team_id: String,
+    pub key_id: String,
+    pub private_key: String,
+}
 #[derive(Clone)]
 pub struct Config {
     pub database_url: String,
     pub providers: ProviderConfig,
+    pub identity: IdentityConfig,
     /// At most two simultaneous paid generations per process.
     pub workers: usize,
     pub pool_connections: u32,
@@ -31,6 +55,7 @@ impl Config {
         Self {
             database_url,
             providers: ProviderConfig::default(),
+            identity: IdentityConfig::default(),
             workers: 2,
             pool_connections: 12,
         }
@@ -44,14 +69,19 @@ pub(crate) struct State {
     pub config: Config,
     pub client: reqwest::Client,
     pub hashes: Arc<Semaphore>,
+    pub identity_requests: Arc<Semaphore>,
     pub images: Arc<Semaphore>,
     pub streams: Arc<Semaphore>,
     pub login_window: std::sync::Mutex<(std::time::Instant, u32)>,
     pub dummy_hash: String,
+    pub jwks: tokio::sync::Mutex<
+        std::collections::HashMap<String, (std::time::Instant, jsonwebtoken::jwk::JwkSet)>,
+    >,
 }
 impl Application {
     /// Connect to the runtime pool; does not run migrations (safe for PgBouncer).
     pub async fn connect(config: Config) -> anyhow::Result<Self> {
+        identity::validate_config(&config.identity)?;
         let pool = PgPoolOptions::new()
             .max_connections(config.pool_connections)
             .acquire_timeout(Duration::from_secs(5))
@@ -75,6 +105,7 @@ impl Application {
                 "simulator must be explicit loopback HTTP"
             );
         }
+        identity::validate_config(&config.identity)?;
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
@@ -88,10 +119,12 @@ impl Application {
             config,
             client,
             hashes: Arc::new(Semaphore::new(2)),
+            identity_requests: Arc::new(Semaphore::new(4)),
             images: Arc::new(Semaphore::new(2)),
             streams: Arc::new(Semaphore::new(32)),
             login_window: std::sync::Mutex::new((std::time::Instant::now(), 0)),
             dummy_hash,
+            jwks: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         })))
     }
     /// Use a direct PostgreSQL URL, not the transaction-pooled runtime URL.

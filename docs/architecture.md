@@ -21,7 +21,7 @@ Production is one Debian Lightsail instance using native services, with no Docke
 | Context and memory machinery | Selected Rig, rig-memory, pinned chrischabot/mem0-rs deferred until memory/context slice; SQL transcript remains authority (ADR 0003) |
 | Local embeddings | Bekko a8m, 384 dimensions, OpenVINO in a private process |
 | Hosted AI | Previously selected DeepSeek Flash, Search/Fetch, hosted FLUX.2 Klein fast/distilled endpoint |
-| Accounts and billing | First slice: operator-created Argon2id accounts, hashed opaque native bearer sessions in PostgreSQL; signup/email/SES and billing remain planned |
+| Accounts and billing | Local signup and Argon2id passwords; Google/Apple verified identities with explicit linking; hashed opaque native sessions in PostgreSQL; email verification/recovery and billing remain planned |
 | Jobs and reminders | Durable PostgreSQL jobs, leases, bounded Rust workers; native push (FCM/APNs direction), with platform behavior to define before reminder delivery |
 | Operations | Debian, native services with systemd, Caddy, pgBackRest, S3; Docker permitted for development/tests only; no GitHub Actions |
 
@@ -82,3 +82,7 @@ Keep modules private by default. Expose a use-case API when an external caller n
 User instructions and explicit acceptance criteria govern scope. Accepted ADRs govern structural choices. This file governs the selected architecture; `docs/status.md` states what works now. Docs and code must agree in the same change. A conflict is resolved and documented, never silently interpreted as permission to invent behavior.
 
 Planning source: [Personal AI Assistant Development Pipeline](https://chatgpt.com/space/page_b97adf45c0a88191b3ca5ad3b713a018), plus later planning-chat decisions for PgBouncer, sonic-rs, explicit Reqwest features, and reminders. The user's Flutter and no-Actions decisions in ADR 0002 supersede the older Page's web frontend and delivery choices. This repository is the backend engineering source of truth going forward; changes here do not automatically update that Page.
+
+## Native account authentication
+
+`src/auth.rs` owns account/password/session operations; `src/identity.rs` owns bounded Google/Apple protocol handling and proof-bound native exchange. PostgreSQL remains the identity authority. The mobile client uses the system authentication browser and secure device storage; provider secrets remain server-side. Matching email never automatically links accounts. See [ADR 0005](decisions/0005-native-account-authentication.md), [API contract](api.md) and [provider operations](operations/authentication.md).

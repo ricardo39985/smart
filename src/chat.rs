@@ -673,6 +673,7 @@ pub(crate) async fn events(
         Auth {
             user: auth.user,
             hash: auth.hash.clone(),
+            created_at: auth.created_at,
         },
         Path(id),
     )

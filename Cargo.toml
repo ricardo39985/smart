@@ -26,6 +26,7 @@ async-stream = "0.3"
 futures-util = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 anyhow = "1"
+jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }
 
 [dev-dependencies]
 testcontainers = "0.28"

@@ -1,4 +1,4 @@
-use smartcindy::{Application, Config, ProviderConfig};
+use smartcindy::{AppleIdentity, Application, Config, GoogleIdentity, ProviderConfig};
 use std::{future::IntoFuture, io::Read};
 
 #[tokio::main]
@@ -23,6 +23,64 @@ async fn run() -> anyhow::Result<()> {
         bfl_key: std::env::var("BFL_API_KEY").ok().filter(|s| !s.is_empty()),
         local_simulator: None,
     };
+    let google_id = std::env::var("GOOGLE_CLIENT_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let google_secret = std::env::var("GOOGLE_CLIENT_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty());
+    anyhow::ensure!(
+        google_id.is_some() == google_secret.is_some(),
+        "incomplete google configuration"
+    );
+    config.identity.google = google_id
+        .zip(google_secret)
+        .map(|(client_id, client_secret)| GoogleIdentity {
+            client_id,
+            client_secret,
+        });
+    let apple_id = std::env::var("APPLE_CLIENT_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let apple_team = std::env::var("APPLE_TEAM_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let apple_key = std::env::var("APPLE_KEY_ID").ok().filter(|s| !s.is_empty());
+    let apple_file = std::env::var("APPLE_PRIVATE_KEY_FILE")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let apple_fields = [
+        apple_id.is_some(),
+        apple_team.is_some(),
+        apple_key.is_some(),
+        apple_file.is_some(),
+    ];
+    anyhow::ensure!(
+        apple_fields.iter().all(|&b| b) || apple_fields.iter().all(|&b| !b),
+        "incomplete apple configuration"
+    );
+    if let (Some(client_id), Some(team_id), Some(key_id), Some(file)) =
+        (apple_id, apple_team, apple_key, apple_file)
+    {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            anyhow::ensure!(
+                std::fs::metadata(&file)?.permissions().mode() & 0o077 == 0,
+                "apple key file must not be accessible to group or others"
+            );
+        }
+        config.identity.apple = Some(AppleIdentity {
+            client_id,
+            team_id,
+            key_id,
+            private_key: std::fs::read_to_string(file)?,
+        });
+    }
+    config.identity.origin = std::env::var("AUTH_ORIGIN").ok().filter(|s| !s.is_empty());
+    config.identity.app_scheme = std::env::var("AUTH_APP_SCHEME")
+        .ok()
+        .filter(|s| !s.is_empty());
     let app = Application::connect(config).await?;
     if args.first().map(String::as_str) == Some("provision-user") {
         anyhow::ensure!(

@@ -9,40 +9,47 @@ use argon2::{
 use axum::{
     Json,
     extract::{FromRequestParts, State},
-    http::{StatusCode, request::Parts},
+    http::{HeaderMap, StatusCode, request::Parts},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 pub(crate) struct Auth {
     pub user: Uuid,
     pub hash: Vec<u8>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 impl FromRequestParts<Application> for Auth {
     type Rejection = Error;
     async fn from_request_parts(parts: &mut Parts, app: &Application) -> Result<Self> {
-        let token = parts
-            .headers
-            .get("authorization")
-            .and_then(|s| s.to_str().ok())
-            .and_then(|s| s.strip_prefix("Bearer "))
-            .filter(|s| s.len() == 43)
-            .ok_or(Error(StatusCode::UNAUTHORIZED, "unauthorized"))?;
-        let hash = Sha256::digest(token.as_bytes()).to_vec();
-        let user = sqlx::query_scalar(
-            "SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()",
-        )
-        .bind(&hash)
-        .fetch_optional(&app.0.pool)
-        .await?
-        .ok_or(Error(StatusCode::UNAUTHORIZED, "unauthorized"))?;
-        Ok(Self { user, hash })
+        authenticate(app, &parts.headers).await
     }
+}
+pub(crate) async fn authenticate(app: &Application, headers: &HeaderMap) -> Result<Auth> {
+    let token = headers
+        .get("authorization")
+        .and_then(|s| s.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .filter(|s| s.len() == 43)
+        .ok_or(Error(StatusCode::UNAUTHORIZED, "unauthorized"))?;
+    let hash = Sha256::digest(token.as_bytes()).to_vec();
+    let row = sqlx::query(
+        "SELECT user_id,created_at FROM sessions WHERE token_hash=$1 AND expires_at>now()",
+    )
+    .bind(&hash)
+    .fetch_optional(&app.0.pool)
+    .await?
+    .ok_or(Error(StatusCode::UNAUTHORIZED, "unauthorized"))?;
+    Ok(Auth {
+        user: row.get("user_id"),
+        hash,
+        created_at: row.get("created_at"),
+    })
 }
 pub(crate) fn hash_password(password: String) -> anyhow::Result<String> {
     let salt = SaltString::generate(&mut rand::rngs::OsRng);
@@ -51,9 +58,83 @@ pub(crate) fn hash_password(password: String) -> anyhow::Result<String> {
         .map(|h| h.to_string())
         .map_err(|_| anyhow::anyhow!("password hashing failed"))
 }
-fn email(s: &str) -> Option<String> {
+pub(crate) fn email(s: &str) -> Option<String> {
     let s = s.trim().to_lowercase();
-    (s.len() <= 254 && s.contains('@') && !s.contains(char::is_whitespace)).then_some(s)
+    let (local, domain) = s.split_once('@')?;
+    (s.len() <= 254
+        && !local.is_empty()
+        && !domain.is_empty()
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && domain.contains('.')
+        && !s.contains(char::is_whitespace)
+        && !s.chars().any(char::is_control)
+        && !domain.contains('@')
+        && !local.contains(' ')
+        && !s.contains(".."))
+    .then_some(s)
+}
+pub(crate) fn throttle(app: &Application) -> Result<()> {
+    let mut w = app
+        .0
+        .login_window
+        .lock()
+        .map_err(|_| Error::unavailable())?;
+    if w.0.elapsed().as_secs() >= 1 {
+        *w = (std::time::Instant::now(), 0);
+    }
+    if w.1 >= 16 {
+        return Err(Error(StatusCode::TOO_MANY_REQUESTS, "rate_limited"));
+    }
+    w.1 += 1;
+    Ok(())
+}
+pub(crate) async fn verify(app: &Application, user: Uuid, password: String) -> Result<bool> {
+    if password.len() > 1024 {
+        return Err(Error::bad());
+    }
+    let permit = app
+        .0
+        .hashes
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| Error(StatusCode::TOO_MANY_REQUESTS, "rate_limited"))?;
+    let row = sqlx::query("SELECT password_hash FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_optional(&app.0.pool)
+        .await?;
+    let hash: String = row
+        .and_then(|r| r.get::<Option<String>, _>("password_hash"))
+        .unwrap_or_else(|| app.0.dummy_hash.clone());
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        PasswordHash::new(&hash).ok().is_some_and(|h| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &h)
+                .is_ok()
+        })
+    })
+    .await
+    .map_err(|_| Error::unavailable())
+}
+pub(crate) async fn issue(tx: &mut Transaction<'_, Postgres>, user: Uuid) -> Result<Value> {
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let token = URL_SAFE_NO_PAD.encode(bytes);
+    let expires = chrono::Utc::now() + chrono::Duration::days(30);
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(user)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM sessions WHERE user_id=$1 AND (expires_at<=now() OR token_hash IN (SELECT token_hash FROM sessions WHERE user_id=$1 ORDER BY expires_at DESC OFFSET 15))")
+        .bind(user).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)")
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .bind(user)
+        .bind(expires)
+        .execute(&mut **tx)
+        .await?;
+    Ok(json!({"token":token,"expires_at":expires,"user_id":user}))
 }
 pub(crate) async fn provision(
     app: &Application,
@@ -68,10 +149,18 @@ pub(crate) async fn provision(
     let _permit = app.0.hashes.clone().acquire_owned().await?;
     let hash = tokio::task::spawn_blocking(move || hash_password(password)).await??;
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)")
+    let display_name: String = email
+        .split('@')
+        .next()
+        .unwrap_or("User")
+        .chars()
+        .take(80)
+        .collect();
+    sqlx::query("INSERT INTO users(id,email,password_hash,display_name) VALUES($1,$2,$3,$4)")
         .bind(id)
         .bind(email)
         .bind(hash)
+        .bind(display_name)
         .execute(&app.0.pool)
         .await?;
     Ok(id)
@@ -89,20 +178,7 @@ pub(crate) async fn login(
     if input.password.len() > 1024 || input.email.len() > 254 {
         return Err(Error::bad());
     }
-    {
-        let mut w = app
-            .0
-            .login_window
-            .lock()
-            .map_err(|_| Error::unavailable())?;
-        if w.0.elapsed().as_secs() >= 1 {
-            *w = (std::time::Instant::now(), 0);
-        }
-        if w.1 >= 16 {
-            return Err(Error(StatusCode::TOO_MANY_REQUESTS, "rate_limited"));
-        }
-        w.1 += 1;
-    }
+    throttle(&app)?;
     let permit = app
         .0
         .hashes
@@ -115,7 +191,7 @@ pub(crate) async fn login(
         .await?;
     let hash: String = row
         .as_ref()
-        .map(|r| r.get("password_hash"))
+        .and_then(|r| r.get::<Option<String>, _>("password_hash"))
         .unwrap_or_else(|| app.0.dummy_hash.clone());
     let valid = tokio::task::spawn_blocking(move || {
         let _permit = permit;
@@ -128,30 +204,13 @@ pub(crate) async fn login(
     .await
     .map_err(|_| Error::unavailable())?;
     let row = row
-        .filter(|_| valid)
+        .filter(|r| valid && r.get::<Option<String>, _>("password_hash").is_some())
         .ok_or(Error(StatusCode::UNAUTHORIZED, "unauthorized"))?;
     let user: Uuid = row.get("id");
-    let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    let token = URL_SAFE_NO_PAD.encode(bytes);
-    let expires = chrono::Utc::now() + chrono::Duration::days(30);
-    // Bounded live sessions per account; provision/login never logs secrets.
     let mut tx = app.0.pool.begin().await?;
-    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-        .bind(user)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM sessions WHERE user_id=$1 AND (expires_at<=now() OR token_hash IN (SELECT token_hash FROM sessions WHERE user_id=$1 ORDER BY expires_at DESC OFFSET 15))").bind(user).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)")
-        .bind(Sha256::digest(token.as_bytes()).to_vec())
-        .bind(user)
-        .bind(expires)
-        .execute(&mut *tx)
-        .await?;
+    let session = issue(&mut tx, user).await?;
     tx.commit().await?;
-    Ok(Json(
-        json!({"token":token,"expires_at":expires,"user_id":user}),
-    ))
+    Ok(Json(session))
 }
 pub(crate) async fn logout(
     State(app): State<Application>,
