@@ -4,6 +4,7 @@ mod auth;
 mod chat;
 mod http;
 mod identity;
+mod profile_photo;
 mod provider;
 mod worker;
 

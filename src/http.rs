@@ -1,4 +1,4 @@
-use crate::{Application, attachments, auth, chat, identity};
+use crate::{Application, attachments, auth, chat, identity, profile_photo};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
@@ -98,6 +98,21 @@ pub(crate) fn router(app: Application) -> Router {
             get(identity::account)
                 .patch(identity::profile)
                 .layer(DefaultBodyLimit::max(8192)),
+        )
+        .route(
+            "/v1/account/avatar",
+            get(profile_photo::get)
+                .put(profile_photo::put)
+                .delete(profile_photo::remove)
+                .layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+        )
+        .route(
+            "/v1/account/email-change",
+            post(identity::email_change_disabled).layer(DefaultBodyLimit::max(8192)),
+        )
+        .route(
+            "/v1/account/password-change",
+            post(identity::password_change_disabled).layer(DefaultBodyLimit::max(8192)),
         )
         .route("/v1/auth/methods", get(identity::methods))
         .route(

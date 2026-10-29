@@ -217,3 +217,23 @@ operator retention/reconciliation tooling are separate pending slices.
 The reviewed v1 schema is [openapi.json](openapi.json). Native consumer generation must use
 that contract, with the behavioral/cursor/stream semantics in this document. Device code
 must not assume that arbitrary provider fields are part of the product API.
+
+## Account profile and photos
+
+`GET/PATCH /v1/account` include display_name_source, nullable validated Google
+avatar_url, has_custom_avatar, and disabled email/password-change capabilities.
+A local name edit survives provider refresh. Verified Google attributes refresh on
+successful sign-in or an explicitly confirmed link of the same subject. Optional
+missing/invalid values preserve previous metadata. The account email stays fixed;
+matching provider emails never merge users.
+
+`PUT /v1/account/avatar` accepts raw PNG/JPEG/WebP up to 2 MiB, decoded within
+4096-pixel dimensions, 16 million pixels and bounded image capacity (429 when busy).
+The server applies orientation, resizes to at most 512 pixels without enlargement,
+and stores a metadata-free PNG independently of chat attachments. `GET` returns
+only the authenticated user's image with no-store/nosniff, or 404. `DELETE` is 204
+including when already absent. Failed uploads preserve the current photo.
+
+Authenticated `POST /v1/account/email-change` and `/password-change` return 503
+email_delivery_unavailable until verified email delivery exists; anonymous calls 401.
+See ADR 0006 and the profile verification record.

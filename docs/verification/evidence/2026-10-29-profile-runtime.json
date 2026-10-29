@@ -1,0 +1,18 @@
+{
+  "host": "Danny Ubuntu-24.04 WSL2",
+  "binary_sha256": "83d1bd5f2e8d309e0b1b4aaf3a67c5a234693fab0e381c5b307135fdbcb45e2a",
+  "migration": "passed",
+  "readiness": "passed",
+  "methods": {
+    "apple": true,
+    "google": true,
+    "password": true
+  },
+  "rollback_backup": "/opt/smartcindy/dev/backups/profile-20261029T153039",
+  "public": {
+    "health": 200,
+    "methods": 200,
+    "anonymous_avatar": 401,
+    "cloudflare_ray": true
+  }
+}

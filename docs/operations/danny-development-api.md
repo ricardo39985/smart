@@ -47,7 +47,7 @@ systemctl --user restart smartcindy-danny-origin.service smartcindy-dev-tunnel.s
 
 ## Reviewed binary update
 
-Build and review a compatible ELF artifact on an approved host. The current runtime binary was built on Inspiron; its verified SHA-256 is `c2794e19c0946a5d0f291f7e17795b23b84b6d12c8c72314c043522968922c08`. Danny runtime compatibility, migrations, and HTTP behavior were verified, but compilation and full Rust tests on Danny were not. Never describe this as a Danny build/test pass.
+Build and review a compatible ELF artifact on an approved host. The current runtime binary was built on Inspiron; its verified SHA-256 is `83d1bd5f2e8d309e0b1b4aaf3a67c5a234693fab0e381c5b307135fdbcb45e2a`. Danny runtime compatibility, migrations, and HTTP behavior were verified, but compilation and full Rust tests on Danny were not. Never describe this as a Danny build/test pass.
 
 For an update, verify the artifact's provenance, compatibility, and independently computed SHA-256 before transfer using the trusted operator path. On Danny, stop only the API, stage the reviewed artifact in the same filesystem, set ownership/mode appropriately, atomically replace `/opt/smartcindy/dev/bin/smartcindy`, then start the API and verify both direct and public health. Preserve the old version for operator-controlled rollback; do not mutate service files or secrets as part of a binary update. Example destination-side sequence (with the staged path and expected digest supplied by the operator):
 
@@ -72,3 +72,10 @@ An authenticated smoke check executed on Danny through the public hostname also 
 Development resource caps are limits, not capacity guarantees. Shared broker preflight showed no running containers, queued/active jobs, or reservations; no broker settings were changed. No production instance, other services, Docker resources (except the retained rollback volume), Windows tasks, reboot, firewall, global packages, or unrelated tunnels were changed. Native Debian production acceptance remains separate; extracting a development userspace does not establish it.
 
 Authentication was activated on this runtime with migration 0002. The protected Apple key is `/opt/smartcindy/dev/identity/apple-signin.p8` (service-owner read only), outside the root-only env directory. Resolve service UID/GID by account lookup rather than assuming they match. Only this API was restarted. See [authentication operations](authentication.md) and [verification](../verification/2026-10-29-authentication.md).
+
+Profile migration 0003 and its verified isolated development binary were activated
+on 2026-10-29. Only this API was stopped/restarted; secrets, PostgreSQL and tunnel
+services were preserved. The previous binary is retained under the private runtime
+backup directory. Direct/public readiness passed. This is a stripped development
+build, with required GLIBC 2.34 on Danny GLIBC 2.39; production release optimization
+and Debian acceptance remain separate. See the profile verification record.

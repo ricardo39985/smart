@@ -134,6 +134,34 @@ fn name(s: &str) -> Result<String> {
         Err(Error::bad())
     }
 }
+fn picture(s: &str) -> Option<String> {
+    if s.len() > 2048 || s.chars().any(char::is_control) {
+        return None;
+    }
+    let url = reqwest::Url::parse(s).ok()?;
+    let host = url.host_str()?;
+    (url.scheme() == "https"
+        && (host == "googleusercontent.com" || host.ends_with(".googleusercontent.com"))
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && url.fragment().is_none())
+    .then(|| s.to_owned())
+}
+// Serialize signups/new provider accounts for the same email, including currently
+// verified provider email aliases. This never authorizes linking by address.
+async fn reserve_email(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    email: &str,
+) -> Result<bool> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(email)
+        .execute(&mut **tx)
+        .await?;
+    let claimed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 UNION ALL SELECT 1 FROM account_identities WHERE verified_email=$1)")
+        .bind(email).fetch_one(&mut **tx).await?;
+    Ok(!claimed)
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Signup {
@@ -166,6 +194,9 @@ pub(crate) async fn signup(
     .map_err(|_| Error::unavailable())?;
     let mut tx = app.0.pool.begin().await?;
     let id = Uuid::new_v4();
+    if !reserve_email(&mut tx, &email).await? {
+        return Err(Error(StatusCode::CONFLICT, "account_exists"));
+    }
     let result =
         sqlx::query("INSERT INTO users(id,email,password_hash,display_name) VALUES($1,$2,$3,$4)")
             .bind(id)
@@ -188,12 +219,12 @@ pub(crate) async fn signup(
 fn unique(e: &sqlx::Error) -> bool {
     matches!(e,sqlx::Error::Database(d) if d.code().as_deref()==Some("23505"))
 }
-async fn account_value(
+pub(crate) async fn account_value(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user: Uuid,
 ) -> Result<Value> {
     let row = sqlx::query(
-        "SELECT email,display_name,password_hash IS NOT NULL AS password FROM users WHERE id=$1",
+        "SELECT email,display_name,name_source,password_hash IS NOT NULL AS password FROM users WHERE id=$1",
     )
     .bind(user)
     .fetch_one(&mut **tx)
@@ -207,8 +238,22 @@ async fn account_value(
     for p in &providers {
         methods.push(p);
     }
+    let source: String = row.get("name_source");
+    let identities = sqlx::query("SELECT provider,verified_email,picture_url FROM account_identities WHERE user_id=$1 ORDER BY CASE provider WHEN 'google' THEN 0 ELSE 1 END")
+        .bind(user).fetch_all(&mut **tx).await?;
+    // Email changes require a future verified email-delivery flow. Provider login
+    // metadata is never the account's editable/displayed email authority.
+    let avatar_url = identities
+        .iter()
+        .find(|i| i.get::<String, _>("provider") == "google")
+        .and_then(|i| i.get::<Option<String>, _>("picture_url"));
+    let custom: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM user_profile_photos WHERE user_id=$1)")
+            .bind(user)
+            .fetch_one(&mut **tx)
+            .await?;
     Ok(
-        json!({"id":user,"email":row.get::<String,_>("email"),"display_name":row.get::<String,_>("display_name"),"methods":methods}),
+        json!({"id":user,"email":row.get::<String,_>("email"),"display_name":row.get::<String,_>("display_name"),"display_name_source":source,"avatar_url":avatar_url,"has_custom_avatar":custom,"methods":methods,"capabilities":{"email_change":false,"password_change":false}}),
     )
 }
 pub(crate) async fn account(State(app): State<Application>, auth: Auth) -> Result<Json<Value>> {
@@ -228,7 +273,7 @@ pub(crate) async fn profile(
 ) -> Result<Json<Value>> {
     let name = name(&input.display_name)?;
     let mut tx = app.0.pool.begin().await?;
-    sqlx::query("UPDATE users SET display_name=$1 WHERE id=$2")
+    sqlx::query("UPDATE users SET display_name=$1,name_source='local' WHERE id=$2")
         .bind(name)
         .bind(auth.user)
         .execute(&mut *tx)
@@ -237,6 +282,24 @@ pub(crate) async fn profile(
     tx.commit().await?;
     Ok(Json(value))
 }
+/// Authenticated, intentionally disabled until verified email delivery exists.
+/// No request credentials are parsed, persisted or acted on.
+pub(crate) async fn email_change_disabled(_auth: Auth) -> Result<StatusCode> {
+    Err(Error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "email_delivery_unavailable",
+    ))
+}
+
+/// Password replacement and adding a password to a provider account both require
+/// the same future proof flow. Never report a fake successful mutation.
+pub(crate) async fn password_change_disabled(_auth: Auth) -> Result<StatusCode> {
+    Err(Error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "email_delivery_unavailable",
+    ))
+}
+
 pub(crate) async fn methods(State(app): State<Application>) -> Json<Value> {
     Json(
         json!({"password":true,"google":app.0.config.identity.google.is_some(),"apple":app.0.config.identity.apple.is_some()}),
@@ -384,12 +447,14 @@ async fn callback(app: Application, p: String, input: Callback) -> Result<Respon
         Err("provider_cancelled")
     };
     let opaque = random();
-    let (subject, email, failure) = match outcome {
-        Ok((subject, email)) => (Some(subject), email, None),
-        Err(code) => (None, None, Some(code)),
+    let (subject, email, provider_name, picture_url, failure) = match outcome {
+        Ok((subject, email, provider_name, picture_url)) => {
+            (Some(subject), email, provider_name, picture_url, None)
+        }
+        Err(code) => (None, None, None, None, Some(code)),
     };
-    sqlx::query("INSERT INTO auth_completions(code_hash,attempt_id,expires_at,provider,subject,email,failure) VALUES($1,$2,now()+interval '2 minutes',$3,$4,$5,$6)")
-        .bind(digest(&opaque)).bind(id).bind(&p).bind(subject).bind(email).bind(failure).execute(&app.0.pool).await?;
+    sqlx::query("INSERT INTO auth_completions(code_hash,attempt_id,expires_at,provider,subject,email,provider_name,picture_url,failure) VALUES($1,$2,now()+interval '2 minutes',$3,$4,$5,$6,$7,$8)")
+        .bind(digest(&opaque)).bind(id).bind(&p).bind(subject).bind(email).bind(provider_name).bind(picture_url).bind(failure).execute(&app.0.pool).await?;
     let scheme = app
         .0
         .config
@@ -456,7 +521,7 @@ async fn redeem(
     code: &str,
     nonce: String,
     verifier: Option<String>,
-) -> anyhow::Result<(String, Option<String>)> {
+) -> anyhow::Result<(String, Option<String>, Option<String>, Option<String>)> {
     let c = &app.0.config.identity;
     let client_id = if p == "google" {
         &c.google
@@ -558,7 +623,77 @@ async fn redeem(
     } else {
         None
     };
-    Ok((sub.into(), email))
+    let provider_name = if p == "google" {
+        claims
+            .get("name")
+            .and_then(Value::as_str)
+            .and_then(|s| name(s).ok())
+    } else {
+        None
+    };
+    let picture_url = if p == "google" {
+        claims
+            .get("picture")
+            .and_then(Value::as_str)
+            .and_then(picture)
+    } else {
+        None
+    };
+    Ok((sub.into(), email, provider_name, picture_url))
+}
+// A conflict on the subject cannot move it to another account. Missing claims
+// preserve previously verified attributes; local names are never touched.
+async fn refresh_identity(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    p: &str,
+    subject: &str,
+    owner: Uuid,
+    email: Option<&str>,
+    provider_name: Option<&str>,
+    picture_url: Option<&str>,
+) -> Result<bool> {
+    // Both callers hold the owner row lock. Refuse replacing this account's
+    // existing provider subject before the unique constraint can abort the
+    // transaction, so the valid native confirmation is still consumed.
+    let linked_subject: Option<String> = sqlx::query_scalar(
+        "SELECT subject FROM account_identities WHERE user_id=$1 AND provider=$2",
+    )
+    .bind(owner)
+    .bind(p)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if linked_subject
+        .as_deref()
+        .is_some_and(|linked| linked != subject)
+    {
+        return Ok(false);
+    }
+    let email = if let Some(address) = email {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(address)
+            .execute(&mut **tx)
+            .await?;
+        let claimed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 AND id<>$2 UNION ALL SELECT 1 FROM account_identities WHERE verified_email=$1 AND user_id<>$2)")
+            .bind(address).bind(owner).fetch_one(&mut **tx).await?;
+        if claimed { None } else { Some(address) }
+    } else {
+        None
+    };
+    let updated = sqlx::query("INSERT INTO account_identities(provider,subject,user_id,verified_email,provider_name,picture_url) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (provider,subject) DO UPDATE SET verified_email=COALESCE(EXCLUDED.verified_email,account_identities.verified_email),provider_name=COALESCE(EXCLUDED.provider_name,account_identities.provider_name),picture_url=COALESCE(EXCLUDED.picture_url,account_identities.picture_url) WHERE account_identities.user_id=EXCLUDED.user_id")
+        .bind(p).bind(subject).bind(owner).bind(email).bind(provider_name).bind(picture_url)
+        .execute(&mut **tx).await?;
+    if updated.rows_affected() == 0 {
+        return Ok(false);
+    }
+    if let Some(name) = provider_name {
+        sqlx::query("UPDATE users SET display_name=$1 WHERE id=$2 AND name_source=$3")
+            .bind(name)
+            .bind(owner)
+            .bind(p)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(true)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -575,7 +710,7 @@ pub(crate) async fn exchange(
         return Err(Error::bad());
     }
     let mut tx = app.0.pool.begin().await?;
-    let row=sqlx::query("SELECT c.attempt_id,c.provider,c.subject,c.email,c.failure,a.owner,a.owner_session_hash,a.challenge FROM auth_completions c JOIN auth_attempts a ON a.id=c.attempt_id WHERE c.code_hash=$1 AND c.expires_at>now() FOR UPDATE OF c")
+    let row=sqlx::query("SELECT c.attempt_id,c.provider,c.subject,c.email,c.provider_name,c.picture_url,c.failure,a.owner,a.owner_session_hash,a.challenge FROM auth_completions c JOIN auth_attempts a ON a.id=c.attempt_id WHERE c.code_hash=$1 AND c.expires_at>now() FOR UPDATE OF c")
         .bind(digest(&input.code)).fetch_optional(&mut *tx).await?.ok_or(Error::bad())?;
     if URL_SAFE_NO_PAD.encode(Sha256::digest(input.verifier.as_bytes()))
         != row.get::<String, _>("challenge")
@@ -609,6 +744,8 @@ pub(crate) async fn exchange(
     let p: String = row.get("provider");
     let subject: String = row.get("subject");
     let email: Option<String> = row.get("email");
+    let provider_name: Option<String> = row.get("provider_name");
+    let picture_url: Option<String> = row.get("picture_url");
     let owner: Option<Uuid> = row.get("owner");
     let existing: Option<Uuid> = sqlx::query_scalar(
         "SELECT user_id FROM account_identities WHERE provider=$1 AND subject=$2",
@@ -625,9 +762,17 @@ pub(crate) async fn exchange(
                 .bind(owner)
                 .execute(&mut *tx)
                 .await?;
-            let inserted=sqlx::query("INSERT INTO account_identities(provider,subject,user_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
-                .bind(&p).bind(&subject).bind(owner).execute(&mut *tx).await?;
-            if inserted.rows_affected() == 0 && existing.is_none() {
+            let linked = refresh_identity(
+                &mut tx,
+                &p,
+                &subject,
+                owner,
+                email.as_deref(),
+                provider_name.as_deref(),
+                picture_url.as_deref(),
+            )
+            .await?;
+            if !linked {
                 Err(Error(StatusCode::CONFLICT, "identity_already_linked"))
             } else {
                 let mut v = account_value(&mut tx, owner).await?;
@@ -636,24 +781,55 @@ pub(crate) async fn exchange(
             }
         }
     } else if let Some(user) = existing {
-        Ok(auth::issue(&mut tx, user).await?)
+        // Lock the account before refreshing attributes or issuing a session.
+        sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+        let refreshed = refresh_identity(
+            &mut tx,
+            &p,
+            &subject,
+            user,
+            email.as_deref(),
+            provider_name.as_deref(),
+            picture_url.as_deref(),
+        )
+        .await?;
+        if refreshed {
+            Ok(auth::issue(&mut tx, user).await?)
+        } else {
+            Err(Error(StatusCode::CONFLICT, "identity_already_linked"))
+        }
     } else if let Some(email) = email {
-        let id = Uuid::new_v4();
-        let inserted=sqlx::query("INSERT INTO users(id,email,password_hash,display_name) VALUES($1,$2,NULL,$3) ON CONFLICT DO NOTHING")
-            .bind(id).bind(&email).bind(email.split('@').next().unwrap_or("User").chars().take(80).collect::<String>()).execute(&mut *tx).await?;
-        if inserted.rows_affected() == 0 {
+        if !reserve_email(&mut tx, &email).await? {
             Err(Error(StatusCode::CONFLICT, "account_link_required"))
         } else {
-            let inserted=sqlx::query("INSERT INTO account_identities(provider,subject,user_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
-                .bind(&p).bind(&subject).bind(id).execute(&mut *tx).await?;
+            let id = Uuid::new_v4();
+            let fallback: String = email
+                .split('@')
+                .next()
+                .unwrap_or("User")
+                .chars()
+                .take(80)
+                .collect();
+            let display_name = provider_name.as_deref().unwrap_or(&fallback);
+            let inserted=sqlx::query("INSERT INTO users(id,email,password_hash,display_name,name_source) VALUES($1,$2,NULL,$3,$4) ON CONFLICT DO NOTHING")
+                .bind(id).bind(&email).bind(display_name).bind(&p).execute(&mut *tx).await?;
             if inserted.rows_affected() == 0 {
-                sqlx::query("DELETE FROM users WHERE id=$1")
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
-                Err(Error(StatusCode::CONFLICT, "identity_already_linked"))
+                Err(Error(StatusCode::CONFLICT, "account_link_required"))
             } else {
-                Ok(auth::issue(&mut tx, id).await?)
+                let inserted=sqlx::query("INSERT INTO account_identities(provider,subject,user_id,verified_email,provider_name,picture_url) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING")
+                    .bind(&p).bind(&subject).bind(id).bind(&email).bind(&provider_name).bind(&picture_url).execute(&mut *tx).await?;
+                if inserted.rows_affected() == 0 {
+                    sqlx::query("DELETE FROM users WHERE id=$1")
+                        .bind(id)
+                        .execute(&mut *tx)
+                        .await?;
+                    Err(Error(StatusCode::CONFLICT, "identity_already_linked"))
+                } else {
+                    Ok(auth::issue(&mut tx, id).await?)
+                }
             }
         }
     } else {

@@ -2,6 +2,20 @@
 
 Last updated: 2026-10-29.
 
+## Profile refinement (2026-10-29)
+
+Verified Google name/photo claims refresh after successful sign-in or explicit
+confirmation of the same linked identity. Local names and custom photos retain
+precedence. Account email stays fixed, and email/password replacement is explicitly
+unavailable until verified delivery exists. Private native photo uploads are
+authenticated, oriented, bounded, resized and stripped of metadata.
+
+The isolated baseline plus profile migration 0003 passed 29 public contracts across
+seven suites, strict Clippy, formatting and documentation. Its development binary
+is active on Danny; public Cloudflare health is 200 and unauthenticated avatar reads
+are 401. See [profile verification](verification/2026-10-29-profile-api.md). This
+profile deployment does not include the separate memory/notification working tree.
+
 ## Deployment decision
 
 Production now targets native services on Debian Lightsail, with no Docker or Compose deployment. Docker is permitted for development/builds and retained for the real PostgreSQL/pgvector Testcontainers suites. See [ADR 0004](decisions/0004-debian-native-deployment.md). The exact Debian release/architecture and native compatibility are release checks; no cloud instance, host service, runner or deployed application was changed by this decision. The FreeBSD proposal was withdrawn.
