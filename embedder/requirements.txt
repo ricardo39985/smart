@@ -1,0 +1,4 @@
+# Native process boundary: no Torch, Transformers, inference SaaS or remote code.
+openvino==2026.4.1
+tokenizers==0.22.2
+numpy==2.2.6

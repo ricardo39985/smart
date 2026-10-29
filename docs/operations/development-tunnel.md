@@ -54,6 +54,13 @@ The recorded user approval covers this persistent connector. Do not request the 
 
 Inspiron user services follow the user's login lifecycle. No Inspiron linger change, system-wide tunnel service, router forwarding, or firewall exception was made. Danny's application services are described separately in the runtime guide. A connected tunnel is not an uptime guarantee.
 
+Keep the persistent Cloudflare connector running. The user's 2026-10-29 instruction
+is to avoid stopping or restarting it during routine API work. A 502 alone is not
+evidence that the connector needs a restart: check Danny's direct readiness, the
+laptop's forwarded readiness and the SSH origin relay first. Target only the
+failed component. A relay restart can return before its SSH connection is ready;
+verify readiness with a bounded retry before declaring recovery.
+
 ## Rollback and future changes
 
 Stop/disable only `smartcindy-dev-tunnel.service` if it was activated. Remove only this exact hostname's DNS record and dedicated tunnel when requested; preserve other records and tunnel credentials. Future hostname/port changes require updating this document, the ingress configuration, and the app environment contract together.

@@ -16,6 +16,42 @@ is active on Danny; public Cloudflare health is 200 and unauthenticated avatar r
 are 401. See [profile verification](verification/2026-10-29-profile-api.md). This
 profile deployment does not include the separate memory/notification working tree.
 
+## Memory, organization and notification section (2026-10-29)
+
+The default DeepSeek Flash adapter now has typed internal none/low/high/max
+reasoning controls, configurable at startup and changeable within the backend
+process before submission. Default remains none; background extraction keeps
+reasoning off. Product HTTP clients have no model/reasoning controls. Strict
+all-target Clippy and formatting passed; the new public four-level protocol
+journey compiled but failed at Docker setup before behavior ran. No live key/call,
+deployment or restart was performed. See [DeepSeek operations and UI handoff](operations/deepseek.md).
+
+New code adds stable Cindy personality, user-controlled personal memory, branch-safe
+recent context and hybrid retrieval, source-attributed background summaries and
+corrections, and cached/uncached model usage. A pinned local Bekko/OpenVINO service
+and offline evaluation command are included. Projects support creation, renaming,
+chat assignment and deletion that preserves chats. Lightweight SSE events tell
+clients which resources changed. Android FCM and iOS APNs adapters add session-bound
+device registration, bounded durable delivery, private previews and rich action
+metadata; native rendering and action handling remain client work. API changes
+bound payloads, avoid unused image copies and redundant streaming reads, and make
+chat creation safe to retry when a request ID is supplied. See the
+[working plan](memory-implementation-plan.md), [ADR 0007](decisions/0007-memory-context.md)
+and [API audit](verification/2026-10-29-api-audit.md). The
+[verification record](verification/2026-10-29-memory-backend.md) separates checks,
+source-review fixes and remaining acceptance gates.
+
+This new section is **implemented, not yet behaviorally verified or deployed**.
+The source is being handed off for frontend integration; see the
+[frontend handoff](frontend-handoff.md). Compilation checks are distinct from integration acceptance.
+This session cannot access the Docker socket; the trusted Danny dispatcher also
+fails its preflight with `socket: Operation not permitted`. No remote job started.
+The current runner documentation still lists a noexec workspace and no Docker
+socket. Real PostgreSQL/Testcontainers, focused mutations, local embedding model
+evaluation and live-provider tests remain gates. No skipped test is counted as a pass.
+The dated implementation/verification sections below describe earlier slices,
+not acceptance of these new changes.
+
 ## Deployment decision
 
 Production now targets native services on Debian Lightsail, with no Docker or Compose deployment. Docker is permitted for development/builds and retained for the real PostgreSQL/pgvector Testcontainers suites. See [ADR 0004](decisions/0004-debian-native-deployment.md). The exact Debian release/architecture and native compatibility are release checks; no cloud instance, host service, runner or deployed application was changed by this decision. The FreeBSD proposal was withdrawn.
@@ -83,7 +119,8 @@ Live paid-provider text/vision/image generation/editing checks need protected cr
 and a capped test budget. No live requests or charges were made. Deployment, coordinated
 edge abuse limits, PgBouncer settings, capacity measurement, backup/restore, account erasure,
 orphan/transcript retention and unknown-paid-outcome reconciliation remain release work.
-Current context limits are explicit; memory compaction is not silently substituted.
+The new context selection and summary limits are explicit; their acceptance is
+tracked in the new section above, separately from the earlier deployed chat slice.
 
 The sibling Flutter app now has Chat, Your space and Create preview screens, lazy sample
 library rows, retained local drafts and a real development health consumer. Its 21 local
@@ -95,9 +132,11 @@ work. Secure account sessions and local login now work; see the authentication v
 [client status](https://github.com/ricardo39985/smartcindy-app/blob/main/docs/status.md).
 No browser frontend or Playwright acceptance is claimed.
 
-Email verification/recovery, account erasure, subscription billing/distribution review, Rig/rig-memory/mem0-rs,
-personal memory/embeddings, research/search and reminders/push remain separate product
-slices. Selected memory libraries are deferred, not replaced by another transcript store.
+Email verification/recovery, account erasure, subscription billing/distribution review,
+research/search and reminder scheduling remain separate product slices. Personal
+memory, local embeddings and push backend code are now written but retain the
+acceptance gates above. Rig/rig-memory/mem0-rs integrations remain deferred; the
+implemented memory path uses PostgreSQL authority, not another transcript store.
 
 The development route now reaches the running Danny development API through the existing
 Inspiron connector and SSH relay. Both machines, LAN, user services and awake Windows are

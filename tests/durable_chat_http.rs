@@ -11,7 +11,7 @@ use axum::{
 };
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use smartcindy::{Application, Config, ProviderConfig};
+use smartcindy::{Application, Config, DeepSeekReasoning, ProviderConfig};
 use std::{
     sync::{
         Arc, Mutex,
@@ -283,6 +283,50 @@ async fn hold_streams(h: &Harness, token: &str, generation: &str) -> Vec<reqwest
 }
 
 #[tokio::test]
+async fn server_controls_flash_reasoning_without_client_model_selection() {
+    let h = Harness::new().await;
+    let token = h.account("reasoning@example.com").await;
+    let chat = h.create(&token, "Internal policy").await;
+    let id = chat["id"].as_str().unwrap();
+    let worker = h.app.run_worker();
+    for (effort, label, thinking) in [
+        (DeepSeekReasoning::None, "none", "disabled"),
+        (DeepSeekReasoning::Low, "low", "enabled"),
+        (DeepSeekReasoning::High, "high", "enabled"),
+        (DeepSeekReasoning::Max, "max", "enabled"),
+    ] {
+        h.app.set_text_reasoning(effort);
+        let accepted = h.submit(&token, id, json!({"request_id":Uuid::new_v4(),"output":"text","parts":[{"type":"text","text":"Hello"}]})).await;
+        let generation = accepted["generation_id"].as_str().unwrap();
+        let result = h.terminal(&token, generation).await;
+        assert_eq!(result["status"], "completed");
+        assert!(result.get("model").is_none());
+        let request = h.sim.requests.lock().unwrap().last().unwrap().clone();
+        assert_eq!(request["model"], "deepseek-flash");
+        assert_eq!(request["reasoning_effort"], label);
+        assert_eq!(request["thinking"]["type"], thinking);
+        assert_eq!(request["max_tokens"], 8192);
+        let events = h.replay(&token, generation, 0).await;
+        assert!(!events.contains("PRIVATE_REASONING"));
+    }
+    for field in ["model", "reasoning_effort"] {
+        let mut body = json!({"request_id":Uuid::new_v4(),"output":"text","parts":[{"type":"text","text":"Hello"}]});
+        body[field] = json!("client-choice");
+        let response = h
+            .client
+            .post(format!("{}/v1/chats/{id}/turns", h.base))
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+    }
+    assert_eq!(h.sim.requests.lock().unwrap().len(), 4);
+    worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn stream_subscribers_are_bounded_and_disconnect_releases_capacity() {
     let h = Harness::new().await;
     let a = h.account("streams@example.test").await;
@@ -363,7 +407,7 @@ async fn authenticated_durable_turn_replay_retry_and_scoped_ownership() {
     );
     assert_eq!(
         h.get(&a, "/v1/capabilities").await,
-        json!({"text":true,"image_input":true,"image_output":true,"image_editing":true})
+        json!({"text":true,"image_input":true,"image_output":true,"image_editing":true,"push":false,"push_android":false,"push_ios":false})
     );
     let invalid = h
         .client

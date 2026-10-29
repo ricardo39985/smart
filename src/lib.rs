@@ -2,12 +2,21 @@
 mod attachments;
 mod auth;
 mod chat;
+mod context;
+mod embedding;
 mod http;
 mod identity;
+mod memory;
+mod memory_worker;
 mod profile_photo;
+mod projects;
 mod provider;
+mod push;
+mod realtime;
 mod worker;
 
+pub use provider::DeepSeekReasoning;
+pub use push::{ApnsConfig, FcmConfig, PushConfig};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Semaphore, watch};
@@ -46,7 +55,13 @@ pub struct AppleIdentity {
 pub struct Config {
     pub database_url: String,
     pub providers: ProviderConfig,
+    /// Initial server-only text reasoning policy; defaults to disabled.
+    pub text_reasoning: DeepSeekReasoning,
     pub identity: IdentityConfig,
+    /// Private loopback Bekko/OpenVINO process. None uses keyword recall only.
+    pub embedding_url: Option<String>,
+    /// Native push delivery is disabled until a platform is configured.
+    pub push: PushConfig,
     /// At most two simultaneous paid generations per process.
     pub workers: usize,
     pub pool_connections: u32,
@@ -56,7 +71,10 @@ impl Config {
         Self {
             database_url,
             providers: ProviderConfig::default(),
+            text_reasoning: DeepSeekReasoning::None,
             identity: IdentityConfig::default(),
+            embedding_url: None,
+            push: PushConfig::default(),
             workers: 2,
             pool_connections: 12,
         }
@@ -68,6 +86,7 @@ pub struct Application(pub(crate) Arc<State>);
 pub(crate) struct State {
     pub pool: PgPool,
     pub config: Config,
+    pub text_reasoning: std::sync::atomic::AtomicU8,
     pub client: reqwest::Client,
     pub hashes: Arc<Semaphore>,
     pub identity_requests: Arc<Semaphore>,
@@ -91,6 +110,8 @@ impl Application {
         Self::new(pool, config).await
     }
     pub async fn new(pool: PgPool, config: Config) -> anyhow::Result<Self> {
+        embedding::validate_url(&config.embedding_url)?;
+        push::validate_config(&config.push)?;
         anyhow::ensure!((1..=2).contains(&config.workers), "workers must be 1..=2");
         anyhow::ensure!(
             (4..=32).contains(&config.pool_connections),
@@ -117,6 +138,7 @@ impl Application {
                 .await??;
         Ok(Self(Arc::new(State {
             pool,
+            text_reasoning: std::sync::atomic::AtomicU8::new(config.text_reasoning as u8),
             config,
             client,
             hashes: Arc::new(Semaphore::new(2)),
@@ -141,6 +163,14 @@ impl Application {
     }
     pub fn router(&self) -> axum::Router {
         http::router(self.clone())
+    }
+    /// Changes the process-wide policy for text calls not yet submitted.
+    /// Internal orchestration only: no public HTTP control or client model selection.
+    /// Does not affect in-flight calls or bounded background memory extraction.
+    pub fn set_text_reasoning(&self, reasoning: DeepSeekReasoning) {
+        self.0
+            .text_reasoning
+            .store(reasoning as u8, std::sync::atomic::Ordering::Relaxed);
     }
     /// Operator-only account creation. Passwords must come from protected input, not argv.
     pub async fn provision_user(

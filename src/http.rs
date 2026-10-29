@@ -1,4 +1,4 @@
-use crate::{Application, attachments, auth, chat, identity, profile_photo};
+use crate::{Application, attachments, auth, chat, identity, memory, profile_photo, projects};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
@@ -131,6 +131,29 @@ pub(crate) fn router(app: Application) -> Router {
         )
         .route_layer(DefaultBodyLimit::max(16 * 1024))
         .route("/v1/capabilities", get(capabilities))
+        .route("/v1/events", get(crate::realtime::events))
+        .route(
+            "/v1/devices/{id}",
+            axum::routing::put(crate::push::register).delete(crate::push::remove),
+        )
+        .route("/v1/memory/jobs", get(memory::jobs))
+        .route(
+            "/v1/memory/settings",
+            get(memory::settings).patch(memory::settings_update),
+        )
+        .route("/v1/memories", get(memory::list).post(memory::create))
+        .route(
+            "/v1/memories/{id}",
+            axum::routing::patch(memory::update).delete(memory::remove),
+        )
+        .route("/v1/projects", get(projects::list).post(projects::create))
+        .route(
+            "/v1/projects/{id}",
+            get(projects::get)
+                .patch(projects::update)
+                .delete(projects::remove),
+        )
+        .route("/v1/chats/{id}/project", post(projects::move_chat))
         .route("/v1/chats", get(chat::list).post(chat::create))
         .route(
             "/v1/chats/{id}",
@@ -138,7 +161,10 @@ pub(crate) fn router(app: Application) -> Router {
         )
         .route("/v1/chats/{id}/messages", get(chat::messages))
         .route("/v1/chats/{id}/branches", get(chat::branches))
-        .route("/v1/chats/{id}/turns", post(chat::turn))
+        .route(
+            "/v1/chats/{id}/turns",
+            post(chat::turn).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
         .route(
             "/v1/chats/{id}/messages/{message}/regenerations",
             post(chat::regenerate),
@@ -146,13 +172,16 @@ pub(crate) fn router(app: Application) -> Router {
         .route("/v1/generations/{id}", get(chat::generation))
         .route("/v1/generations/{id}/cancel", post(chat::cancel))
         .route("/v1/generations/{id}/events", get(chat::events))
-        .route("/v1/attachments", post(attachments::upload))
+        .route(
+            "/v1/attachments",
+            post(attachments::upload).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
         .route(
             "/v1/attachments/{id}",
             get(attachments::download).delete(attachments::remove),
         )
         .fallback(|| async { Error::missing() })
-        .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn(envelope))
         .with_state(app)
 }
@@ -173,7 +202,7 @@ async fn healthz(State(app): State<Application>) -> Response {
 }
 async fn capabilities(State(app): State<Application>, _auth: auth::Auth) -> Json<Value> {
     Json(
-        json!({"text":app.0.config.providers.deepseek_key.is_some(),"image_input":app.0.config.providers.deepseek_key.is_some() || app.0.config.providers.bfl_key.is_some(),"image_output":app.0.config.providers.bfl_key.is_some(),"image_editing":app.0.config.providers.bfl_key.is_some()}),
+        json!({"push":crate::push::available(&app.0.config.push),"push_android":app.0.config.push.fcm.is_some(),"push_ios":app.0.config.push.apns.is_some(),"text":app.0.config.providers.deepseek_key.is_some(),"image_input":app.0.config.providers.deepseek_key.is_some() || app.0.config.providers.bfl_key.is_some(),"image_output":app.0.config.providers.bfl_key.is_some(),"image_editing":app.0.config.providers.bfl_key.is_some()}),
     )
 }
 
@@ -185,6 +214,8 @@ pub(crate) struct Cursor {
     pub owner: uuid::Uuid,
     pub chat: Option<uuid::Uuid>,
     pub archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<uuid::Uuid>,
     pub high: i64,
     pub before: i64,
     pub head: Option<uuid::Uuid>,

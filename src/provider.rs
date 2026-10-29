@@ -6,6 +6,49 @@ use sqlx::Row;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+/// Server-only reasoning policy. This is never deserialized from product HTTP requests.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub enum DeepSeekReasoning {
+    #[default]
+    None,
+    Low,
+    High,
+    Max,
+}
+impl std::str::FromStr for DeepSeekReasoning {
+    type Err = &'static str;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "none" => Ok(Self::None),
+            "low" => Ok(Self::Low),
+            "high" => Ok(Self::High),
+            "max" => Ok(Self::Max),
+            _ => Err("reasoning must be none, low, high or max"),
+        }
+    }
+}
+impl DeepSeekReasoning {
+    pub(crate) fn configure(self, body: &mut Value) {
+        body["model"] = json!("deepseek-flash");
+        body["thinking"] = json!({"type":if self == Self::None {"disabled"} else {"enabled"}});
+        body["reasoning_effort"] = json!(match self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::High => "high",
+            Self::Max => "max",
+        });
+    }
+    pub(crate) fn from_policy(value: u8) -> Self {
+        match value {
+            1 => Self::Low,
+            2 => Self::High,
+            3 => Self::Max,
+            _ => Self::None,
+        }
+    }
+}
+
 pub(crate) enum Piece {
     Delta(String),
     Usage(Value),
@@ -16,6 +59,9 @@ pub(crate) struct Context {
     messages: Vec<Value>,
     prompt: String,
     current_images: Vec<String>,
+    owner: Uuid,
+    memory_version: Option<i64>,
+    pub(crate) metadata: Value,
 }
 // Actual replaceable IO boundary is HTTP; protocol simulators exercise these same adapters.
 pub(crate) async fn context(
@@ -25,10 +71,22 @@ pub(crate) async fn context(
     user: Uuid,
     image_output: bool,
 ) -> anyhow::Result<Context> {
-    let rows=sqlx::query("WITH RECURSIVE path AS (SELECT id,parent_id,role,parts,depth FROM messages WHERE id=$1 AND chat_id=$2 UNION ALL SELECT m.id,m.parent_id,m.role,m.parts,m.depth FROM messages m JOIN path p ON m.id=p.parent_id WHERE m.chat_id=$2) SELECT p.* FROM path p JOIN chats c ON c.id=$2 WHERE c.owner_id=$3 AND c.deleted_at IS NULL ORDER BY p.depth")
-        .bind(user).bind(chat).bind(owner).fetch_all(&app.0.pool).await?;
+    let prepared = if image_output {
+        None
+    } else {
+        Some(crate::context::prepare(app, owner, chat, user).await?)
+    };
+    let ids = prepared
+        .as_ref()
+        .map(|p| p.recent_ids.clone())
+        .unwrap_or_else(|| vec![user]);
+    let rows = sqlx::query("SELECT m.* FROM messages m JOIN chats c ON c.id=m.chat_id WHERE m.chat_id=$1 AND c.owner_id=$2 AND c.deleted_at IS NULL AND m.id=ANY($3) ORDER BY m.depth")
+        .bind(chat).bind(owner).bind(&ids).fetch_all(&app.0.pool).await?;
     anyhow::ensure!(!rows.is_empty() && rows.len() <= 128, "context unavailable");
-    let mut messages = Vec::new();
+    let mut messages = prepared
+        .as_ref()
+        .map(|p| p.prefix.clone())
+        .unwrap_or_default();
     let mut text_bytes = 0;
     let mut image_bytes = 0;
     let mut prompt = String::new();
@@ -36,6 +94,11 @@ pub(crate) async fn context(
     for row in rows {
         let role: String = row.get("role");
         let id: Uuid = row.get("id");
+        if id == user
+            && let Some(recall) = prepared.as_ref().and_then(|p| p.recall.clone())
+        {
+            messages.push(recall);
+        }
         let parts: Vec<Part> = serde_json::from_value(row.get("parts"))?;
         let mut content = Vec::new();
         let mut assistant_text = String::new();
@@ -67,16 +130,19 @@ pub(crate) async fn context(
                         image_bytes += bytes.len();
                         anyhow::ensure!(image_bytes <= 32 * 1024 * 1024, "context limit");
                         let encoded = STANDARD.encode(bytes);
-                        let image = json!({"type":"image_url","image_url":{"url":format!("data:{};base64,{}",a.get::<String,_>("mime"),encoded)}});
-                        if id == user {
+                        if image_output {
                             current_images.push(encoded);
+                        } else {
+                            content.push(json!({"type":"image_url","image_url":{"url":format!("data:{};base64,{}",a.get::<String,_>("mime"),encoded)}}));
                         }
-                        content.push(image);
                     }
                 }
             }
         }
         anyhow::ensure!(text_bytes <= 65536, "context limit");
+        if image_output {
+            continue;
+        }
         messages.push(if role == "assistant" {
             json!({"role":role,"content":assistant_text})
         } else {
@@ -87,6 +153,11 @@ pub(crate) async fn context(
         messages,
         prompt,
         current_images,
+        owner,
+        memory_version: prepared.as_ref().map(|p| p.memory_version),
+        metadata: prepared
+            .map(|p| p.metadata)
+            .unwrap_or_else(|| json!({"mode":"current_image_inputs"})),
     })
 }
 pub(crate) async fn generate(
@@ -132,10 +203,35 @@ async fn deepseek(
         .local_simulator
         .as_deref()
         .unwrap_or("https://api.deepseek.com");
-    let response=app.0.client.post(format!("{base}/chat/completions"))
-        .bearer_auth(app.0.config.providers.deepseek_key.as_deref().ok_or_else(||anyhow::anyhow!("unavailable"))?)
-        .json(&json!({"model":"deepseek-flash","messages":context.messages,"stream":true,"stream_options":{"include_usage":true},"thinking":{"type":"disabled"},"max_tokens":8192}))
-        .send().await?;
+    if let Some(version) = context.memory_version {
+        anyhow::ensure!(
+            crate::memory::current_settings(app, context.owner).await?.1 == version,
+            "memory changed"
+        );
+    }
+    let mut body = json!({"user_id":context.owner.to_string(),"messages":context.messages,"stream":true,"stream_options":{"include_usage":true},"max_tokens":8192});
+    // Snapshot once immediately before submission; in-flight requests keep their choice.
+    DeepSeekReasoning::from_policy(
+        app.0
+            .text_reasoning
+            .load(std::sync::atomic::Ordering::Relaxed),
+    )
+    .configure(&mut body);
+    let response = app
+        .0
+        .client
+        .post(format!("{base}/chat/completions"))
+        .bearer_auth(
+            app.0
+                .config
+                .providers
+                .deepseek_key
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("unavailable"))?,
+        )
+        .json(&body)
+        .send()
+        .await?;
     anyhow::ensure!(response.status().is_success(), "provider rejected request");
     let mut stream = response.bytes_stream();
     let mut parser = Frames::default();
@@ -152,12 +248,7 @@ async fn deepseek(
             let value: Value = serde_json::from_str(&data)?;
             anyhow::ensure!(value.get("error").is_none(), "provider stream error");
             if let Some(usage) = value.get("usage").filter(|u| !u.is_null()) {
-                tx.send(Piece::Usage(json!({
-                    "input_tokens": usage.get("prompt_tokens").and_then(Value::as_u64),
-                    "output_tokens": usage.get("completion_tokens").and_then(Value::as_u64),
-                    "total_tokens": usage.get("total_tokens").and_then(Value::as_u64),
-                })))
-                .await?;
+                tx.send(Piece::Usage(normalize_usage(usage))).await?;
             }
             if let Some(choices) = value.get("choices").and_then(Value::as_array) {
                 anyhow::ensure!(choices.len() <= 1, "unexpected choices");
@@ -188,6 +279,22 @@ async fn deepseek(
     }
     anyhow::ensure!(done && finish && total > 0, "incomplete provider stream");
     Ok(())
+}
+pub(crate) fn normalize_usage(usage: &Value) -> Value {
+    let mut normalized = json!({
+        "input_tokens": usage.get("prompt_tokens").and_then(Value::as_u64),
+        "output_tokens": usage.get("completion_tokens").and_then(Value::as_u64),
+        "total_tokens": usage.get("total_tokens").and_then(Value::as_u64),
+    });
+    for (source, target) in [
+        ("prompt_cache_hit_tokens", "cached_input_tokens"),
+        ("prompt_cache_miss_tokens", "uncached_input_tokens"),
+    ] {
+        if let Some(count) = usage.get(source).and_then(Value::as_u64) {
+            normalized[target] = json!(count);
+        }
+    }
+    normalized
 }
 #[derive(Default)]
 struct Frames {

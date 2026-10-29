@@ -22,6 +22,7 @@ use uuid::Uuid;
 struct Chat {
     id: Uuid,
     title: String,
+    project_id: Option<Uuid>,
     archived: bool,
     version: i64,
     head_id: Option<Uuid>,
@@ -50,6 +51,8 @@ pub(crate) async fn get(
 #[serde(deny_unknown_fields)]
 pub(crate) struct Create {
     title: String,
+    project_id: Option<Uuid>,
+    request_id: Option<Uuid>,
 }
 fn title_valid(s: &str) -> bool {
     s.chars().count() <= 200
@@ -67,12 +70,37 @@ pub(crate) async fn create(
         .bind(auth.user)
         .execute(&mut *tx)
         .await?;
+    let fingerprint = Sha256::digest(
+        serde_json::to_vec(&json!([input.title, input.project_id])).map_err(|_| Error::bad())?,
+    )
+    .to_vec();
+    if let Some(request) = input.request_id
+        && let Some(old)=sqlx::query("SELECT id,create_fingerprint,deleted_at FROM chats WHERE owner_id=$1 AND create_request_id=$2")
+            .bind(auth.user).bind(request).fetch_optional(&mut *tx).await? {
+            if old.get::<Option<Vec<u8>>,_>("create_fingerprint").as_ref()!=Some(&fingerprint){return Err(Error::conflict());}
+            if old.get::<Option<chrono::DateTime<chrono::Utc>>,_>("deleted_at").is_some(){return Err(Error(StatusCode::GONE,"chat_deleted"));}
+            let chat=sqlx::query_as::<_,Chat>("SELECT * FROM chats WHERE id=$1 AND owner_id=$2")
+                .bind(old.get::<Uuid,_>("id")).bind(auth.user).fetch_one(&mut *tx).await?;
+            tx.commit().await?;
+            return Ok((StatusCode::OK,Json(json!(chat))));
+    }
+    if let Some(project) = input.project_id {
+        sqlx::query("SELECT id FROM projects WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL")
+            .bind(project)
+            .bind(auth.user)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(Error::missing)?;
+    }
     let chat = sqlx::query_as::<_, Chat>(
-        "INSERT INTO chats(id,owner_id,title) VALUES($1,$2,$3) RETURNING *",
+        "INSERT INTO chats(id,owner_id,title,project_id,create_request_id,create_fingerprint) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
     )
     .bind(Uuid::new_v4())
     .bind(auth.user)
     .bind(input.title)
+    .bind(input.project_id)
+    .bind(input.request_id)
+    .bind(input.request_id.map(|_|fingerprint))
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -84,6 +112,7 @@ pub(crate) struct Listing {
     limit: Option<i64>,
     cursor: Option<String>,
     archived: Option<bool>,
+    project_id: Option<Uuid>,
 }
 pub(crate) async fn list(
     State(app): State<Application>,
@@ -92,9 +121,17 @@ pub(crate) async fn list(
 ) -> Result<Json<Value>> {
     let limit = http::limit(q.limit, 30)?;
     let archived = q.archived.unwrap_or(false);
+    if let Some(project) = q.project_id {
+        sqlx::query("SELECT id FROM projects WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL")
+            .bind(project)
+            .bind(auth.user)
+            .fetch_optional(&app.0.pool)
+            .await?
+            .ok_or_else(Error::missing)?;
+    }
     let (high, before) = if let Some(s) = q.cursor {
         let c = http::decode(&s, "chats", auth.user, None)?;
-        if c.archived != Some(archived) {
+        if c.archived != Some(archived) || c.project_id != q.project_id {
             return Err(Error::bad());
         }
         (c.high, c.before)
@@ -108,8 +145,8 @@ pub(crate) async fn list(
         tx.commit().await?;
         (high, high)
     };
-    let mut rows = sqlx::query_as::<_,Chat>("SELECT * FROM chats WHERE owner_id=$1 AND archived=$2 AND deleted_at IS NULL AND seq<=$3 AND seq<=$4 ORDER BY seq DESC LIMIT $5")
-        .bind(auth.user).bind(archived).bind(high).bind(before).bind(limit+1).fetch_all(&app.0.pool).await?;
+    let mut rows = sqlx::query_as::<_,Chat>("SELECT * FROM chats WHERE owner_id=$1 AND archived=$2 AND deleted_at IS NULL AND seq<=$3 AND seq<=$4 AND ($6::uuid IS NULL OR project_id=$6) ORDER BY seq DESC LIMIT $5")
+        .bind(auth.user).bind(archived).bind(high).bind(before).bind(limit+1).bind(q.project_id).fetch_all(&app.0.pool).await?;
     let next = if rows.len() as i64 > limit {
         rows.pop();
         rows.last().map(|r| {
@@ -119,6 +156,7 @@ pub(crate) async fn list(
                 owner: auth.user,
                 chat: None,
                 archived: Some(archived),
+                project_id: q.project_id,
                 high,
                 before: r.seq - 1,
                 head: None,
@@ -149,6 +187,11 @@ pub(crate) async fn update(
         return Err(Error::bad());
     }
     let mut tx = app.0.pool.begin().await?;
+    // Owner-first mutation order also serializes change notifications.
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(auth.user)
+        .execute(&mut *tx)
+        .await?;
     let old: i64 = sqlx::query_scalar(
         "SELECT version FROM chats WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL FOR UPDATE",
     )
@@ -208,6 +251,9 @@ pub(crate) async fn remove(
             .await?;
     }
     sqlx::query("UPDATE chats SET deleted_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND owner_id=$2").bind(id).bind(auth.user).execute(&mut *tx).await?;
+    crate::memory::invalidate_chat(&mut tx, auth.user, id)
+        .await
+        .map_err(|_| Error::unavailable())?;
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -405,7 +451,7 @@ async fn accept(
                 return Err(Error::conflict());
             }
         }
-        if depth >= 128 {
+        if depth >= 4096 {
             return Err(Error(StatusCode::BAD_REQUEST, "context_limit"));
         }
         let message = Uuid::new_v4();
@@ -443,14 +489,13 @@ async fn accept(
         }
         (id, row.get::<i32, _>("depth"))
     };
-    // Validate complete context budget before accepting paid work; never truncate silently.
-    let budget = sqlx::query("WITH RECURSIVE path AS (SELECT id,parent_id,parts,role,1 AS n FROM messages WHERE id=$1 AND chat_id=$2 UNION ALL SELECT m.id,m.parent_id,m.parts,m.role,p.n+1 FROM messages m JOIN path p ON m.id=p.parent_id WHERE m.chat_id=$2 AND p.n<129) SELECT count(*)::bigint AS n,COALESCE(sum(octet_length(parts::text)),0)::bigint AS bytes,count(*) FILTER(WHERE role='user' AND parts @> '[{\"type\":\"image\"}]'::jsonb)::bigint AS photos FROM path")
-        .bind(message).bind(chat).fetch_one(&mut *tx).await?;
-    if budget.get::<i64, _>("n") > 128 || budget.get::<i64, _>("bytes") > 65536 || depth >= 128 {
+    // Stored ancestry and selected prompt are separate bounds. Context assembly chooses
+    // whole recent messages and retrieves older passages; history remains durable.
+    if depth >= 4096 {
         return Err(Error(StatusCode::BAD_REQUEST, "context_limit"));
     }
-    let image_bytes: i64 = sqlx::query_scalar("WITH RECURSIVE path AS (SELECT id,parent_id FROM messages WHERE id=$1 AND chat_id=$2 UNION ALL SELECT m.id,m.parent_id FROM messages m JOIN path p ON m.id=p.parent_id WHERE m.chat_id=$2) SELECT COALESCE(sum(octet_length(a.bytes)),0)::bigint FROM path p JOIN message_attachments ma ON ma.message_id=p.id JOIN attachments a ON a.id=ma.attachment_id AND a.owner_id=$3 WHERE NOT $4 OR p.id=$1")
-        .bind(message).bind(chat).bind(owner).bind(output==Output::Image).fetch_one(&mut *tx).await?;
+    let image_bytes: i64 = sqlx::query_scalar("SELECT COALESCE(sum(octet_length(a.bytes)),0)::bigint FROM message_attachments ma JOIN attachments a ON a.id=ma.attachment_id WHERE ma.message_id=$1 AND a.owner_id=$2")
+        .bind(message).bind(owner).fetch_one(&mut *tx).await?;
     if image_bytes > 32 * 1024 * 1024 {
         return Err(Error(StatusCode::BAD_REQUEST, "context_limit"));
     }
@@ -552,26 +597,44 @@ pub(crate) async fn messages(
             return Err(Error::missing());
         }
     }
-    let mut rows = sqlx::query("WITH RECURSIVE path AS (SELECT m.*,1 AS n FROM messages m WHERE m.id=$1 AND m.chat_id=$2 UNION ALL SELECT m.*,p.n+1 FROM messages m JOIN path p ON m.id=p.parent_id WHERE m.chat_id=$2 AND p.n<$3) SELECT p.*,g.status FROM path p JOIN chats c ON c.id=p.chat_id LEFT JOIN generations g ON g.id=p.generation_id WHERE c.owner_id=$4 AND c.deleted_at IS NULL ORDER BY p.depth DESC")
-        .bind(start).bind(chat).bind(limit+1).bind(auth.user).fetch_all(&app.0.pool).await?;
-    let next = if rows.len() as i64 > limit {
-        let next_id: Uuid = rows.pop().expect("extra row").get("id");
-        Some(http::encode(&Cursor {
+    // Consume only a response-sized prefix. Ancestor arrays are never selected into pages.
+    use futures_util::TryStreamExt;
+    let mut rows = sqlx::query("WITH RECURSIVE path AS (SELECT m.id,m.parent_id,m.chat_id,m.role,m.parts,m.depth,m.seq,m.created_at,m.generation_id,1 AS n FROM messages m WHERE m.id=$1 AND m.chat_id=$2 UNION ALL SELECT m.id,m.parent_id,m.chat_id,m.role,m.parts,m.depth,m.seq,m.created_at,m.generation_id,p.n+1 FROM messages m JOIN path p ON m.id=p.parent_id WHERE m.chat_id=$2 AND p.n<$3) SELECT p.id,p.parent_id,p.role,p.parts,p.depth,p.seq,p.created_at,p.generation_id,g.status FROM path p JOIN chats c ON c.id=p.chat_id LEFT JOIN generations g ON g.id=p.generation_id WHERE c.owner_id=$4 AND c.deleted_at IS NULL ORDER BY p.depth DESC")
+        .bind(start).bind(chat).bind(limit+1).bind(auth.user).fetch(&app.0.pool);
+    let mut items = Vec::new();
+    let mut bytes = 0;
+    let mut next_id = None;
+    while let Some(row) = rows.try_next().await? {
+        let item = message_json(&row);
+        let size = serde_json::to_vec(&item)
+            .map_err(|_| Error::unavailable())?
+            .len()
+            + 1;
+        if items.len() >= limit as usize || (!items.is_empty() && bytes + size > 512 * 1024 - 2048)
+        {
+            next_id = Some(row.get::<Uuid, _>("id"));
+            break;
+        }
+        bytes += size;
+        items.push(item);
+    }
+    drop(rows);
+    let next = next_id.map(|next_id| {
+        http::encode(&Cursor {
             v: 1,
             kind: "messages".into(),
             owner: auth.user,
             chat: Some(chat),
             archived: None,
+            project_id: None,
             high: 0,
             before: 0,
             head,
             next: Some(next_id),
-        }))
-    } else {
-        None
-    };
+        })
+    });
     Ok(Json(
-        json!({"items":rows.iter().map(message_json).collect::<Vec<_>>(),"head_id":head,"next_cursor":next}),
+        json!({"items":items,"head_id":head,"next_cursor":next}),
     ))
 }
 pub(crate) async fn branches(
@@ -598,29 +661,44 @@ pub(crate) async fn branches(
         tx.commit().await?;
         (high, high)
     };
-    let mut rows=sqlx::query("SELECT m.*,g.status FROM messages m JOIN chats c ON c.id=m.chat_id LEFT JOIN generations g ON g.id=m.generation_id WHERE m.chat_id=$1 AND c.owner_id=$2 AND c.deleted_at IS NULL AND m.seq<=$3 AND m.seq<=$4 AND NOT EXISTS(SELECT 1 FROM messages child WHERE child.chat_id=m.chat_id AND child.parent_id=m.id AND child.seq<=$3) ORDER BY m.seq DESC LIMIT $5")
-        .bind(chat).bind(auth.user).bind(high).bind(before).bind(limit+1).fetch_all(&app.0.pool).await?;
-    let next = if rows.len() as i64 > limit {
-        rows.pop();
-        rows.last().map(|r| {
-            http::encode(&Cursor {
-                v: 1,
-                kind: "branches".into(),
-                owner: auth.user,
-                chat: Some(chat),
-                archived: None,
-                high,
-                before: r.get::<i64, _>("seq") - 1,
-                head: None,
-                next: None,
-            })
+    use futures_util::TryStreamExt;
+    let mut rows=sqlx::query("SELECT m.id,m.parent_id,m.role,m.parts,m.depth,m.seq,m.created_at,m.generation_id,g.status FROM messages m JOIN chats c ON c.id=m.chat_id LEFT JOIN generations g ON g.id=m.generation_id WHERE m.chat_id=$1 AND c.owner_id=$2 AND c.deleted_at IS NULL AND m.seq<=$3 AND m.seq<=$4 AND NOT EXISTS(SELECT 1 FROM messages child WHERE child.chat_id=m.chat_id AND child.parent_id=m.id AND child.seq<=$3) ORDER BY m.seq DESC LIMIT $5")
+        .bind(chat).bind(auth.user).bind(high).bind(before).bind(limit+1).fetch(&app.0.pool);
+    let mut items = Vec::new();
+    let mut bytes = 0;
+    let mut last_seq = before;
+    let mut more = false;
+    while let Some(row) = rows.try_next().await? {
+        let item = message_json(&row);
+        let size = serde_json::to_vec(&item)
+            .map_err(|_| Error::unavailable())?
+            .len()
+            + 1;
+        if items.len() >= limit as usize || (!items.is_empty() && bytes + size > 512 * 1024 - 2048)
+        {
+            more = true;
+            break;
+        }
+        bytes += size;
+        last_seq = row.get::<i64, _>("seq");
+        items.push(item);
+    }
+    drop(rows);
+    let next = more.then(|| {
+        http::encode(&Cursor {
+            v: 1,
+            kind: "branches".into(),
+            owner: auth.user,
+            chat: Some(chat),
+            archived: None,
+            project_id: None,
+            high,
+            before: last_seq - 1,
+            head: None,
+            next: None,
         })
-    } else {
-        None
-    };
-    Ok(Json(
-        json!({"items":rows.iter().map(message_json).collect::<Vec<_>>(),"next_cursor":next}),
-    ))
+    });
+    Ok(Json(json!({"items":items,"next_cursor":next})))
 }
 pub(crate) async fn generation(
     State(app): State<Application>,
@@ -629,7 +707,7 @@ pub(crate) async fn generation(
 ) -> Result<Json<Value>> {
     let row=sqlx::query("SELECT g.* FROM generations g JOIN chats c ON c.id=g.chat_id WHERE g.id=$1 AND g.owner_id=$2 AND c.owner_id=$2 AND c.deleted_at IS NULL").bind(id).bind(auth.user).fetch_optional(&app.0.pool).await?.ok_or_else(Error::missing)?;
     Ok(Json(
-        json!({"generation_id":id,"user_message_id":row.get::<Uuid,_>("user_message_id"),"status":row.get::<String,_>("status"),"result_message_id":row.get::<Option<Uuid>,_>("result_message_id"),"error":row.get::<Option<String>,_>("error"),"usage":row.get::<Option<Value>,_>("usage"),"created_at":row.get::<chrono::DateTime<chrono::Utc>,_>("created_at"),"updated_at":row.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")}),
+        json!({"generation_id":id,"user_message_id":row.get::<Uuid,_>("user_message_id"),"status":row.get::<String,_>("status"),"result_message_id":row.get::<Option<Uuid>,_>("result_message_id"),"error":row.get::<Option<String>,_>("error"),"usage":row.get::<Option<Value>,_>("usage"),"context":row.get::<Option<Value>,_>("context"),"created_at":row.get::<chrono::DateTime<chrono::Utc>,_>("created_at"),"updated_at":row.get::<chrono::DateTime<chrono::Utc>,_>("updated_at")}),
     ))
 }
 pub(crate) async fn cancel(
@@ -714,14 +792,15 @@ pub(crate) async fn events(
         let _permit=permit;
         loop {
             // Poll authentication/deletion each batch, including while idle. No connection survives yield.
-            let state=sqlx::query_scalar::<_,String>("SELECT g.status FROM generations g JOIN chats c ON c.id=g.chat_id JOIN sessions s ON s.user_id=g.owner_id WHERE g.id=$1 AND g.owner_id=$2 AND c.owner_id=$2 AND c.deleted_at IS NULL AND s.token_hash=$3 AND s.expires_at>now()")
-                .bind(id).bind(auth.user).bind(&auth.hash).fetch_optional(&app.0.pool).await;
-            let status=match state {Ok(Some(s))=>s,Ok(None)=>break,Err(_)=>{yield Err::<Event,std::io::Error>(std::io::Error::other("stream unavailable"));break;}};
-            let rows=sqlx::query("SELECT seq,kind,data FROM generation_events WHERE generation_id=$1 AND seq>$2 ORDER BY seq LIMIT 32").bind(id).bind(after).fetch_all(&app.0.pool).await;
-            let rows=match rows {Ok(r)=>r,Err(_)=>{yield Err(std::io::Error::other("stream unavailable"));break;}};
-            let empty=rows.is_empty();
+            let rows=sqlx::query("SELECT g.status,e.seq,e.kind,e.data FROM generations g JOIN chats c ON c.id=g.chat_id JOIN sessions s ON s.user_id=g.owner_id LEFT JOIN LATERAL (SELECT seq,kind,data FROM generation_events WHERE generation_id=g.id AND seq>$4 ORDER BY seq LIMIT 32) e ON true WHERE g.id=$1 AND g.owner_id=$2 AND c.owner_id=$2 AND c.deleted_at IS NULL AND s.token_hash=$3 AND s.expires_at>now() ORDER BY e.seq")
+                .bind(id).bind(auth.user).bind(&auth.hash).bind(after).fetch_all(&app.0.pool).await;
+            let rows=match rows {Ok(r)=>r,Err(_)=>{yield Err::<Event,std::io::Error>(std::io::Error::other("stream unavailable"));break;}};
+            let Some(first)=rows.first() else {break;};
+            let status:String=first.get("status");
+            let empty=first.get::<Option<i64>,_>("seq").is_none();
             for row in rows {
-                after=row.get("seq");
+                let Some(seq)=row.get::<Option<i64>,_>("seq") else {continue;};
+                after=seq;
                 let kind:String=row.get("kind");
                 let data:Value=row.get("data");
                 yield Ok(Event::default().id(after.to_string()).event(kind.clone()).data(data.to_string()));

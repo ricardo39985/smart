@@ -16,6 +16,14 @@ async fn run() -> anyhow::Result<()> {
         return Application::migrate(&std::env::var("MIGRATION_DATABASE_URL")?).await;
     }
     let mut config = Config::new(std::env::var("DATABASE_URL")?);
+    config.text_reasoning = match std::env::var("DEEPSEEK_REASONING") {
+        Ok(value) => value.parse().map_err(anyhow::Error::msg)?,
+        Err(std::env::VarError::NotPresent) => Default::default(),
+        Err(error) => return Err(error.into()),
+    };
+    config.embedding_url = std::env::var("EMBEDDING_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
     config.providers = ProviderConfig {
         deepseek_key: std::env::var("DEEPSEEK_API_KEY")
             .ok()
@@ -81,6 +89,52 @@ async fn run() -> anyhow::Result<()> {
     config.identity.app_scheme = std::env::var("AUTH_APP_SCHEME")
         .ok()
         .filter(|s| !s.is_empty());
+    if let Some(file) = optional("FCM_SERVICE_ACCOUNT_FILE") {
+        let service: serde_json::Value = serde_json::from_str(&private_file(&file)?)?;
+        anyhow::ensure!(
+            service["type"] == "service_account",
+            "invalid FCM credential type"
+        );
+        config.push.fcm = Some(smartcindy::FcmConfig {
+            project_id: service["project_id"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("FCM project missing"))?
+                .into(),
+            client_email: service["client_email"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("FCM account missing"))?
+                .into(),
+            private_key: service["private_key"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("FCM signing key missing"))?
+                .into(),
+        });
+    }
+    let apns = [
+        optional("APNS_TEAM_ID"),
+        optional("APNS_KEY_ID"),
+        optional("APNS_BUNDLE_ID"),
+        optional("APNS_PRIVATE_KEY_FILE"),
+    ];
+    anyhow::ensure!(
+        apns.iter().all(Option::is_none) || apns.iter().all(Option::is_some),
+        "incomplete APNs configuration"
+    );
+    if let [Some(team), Some(key), Some(bundle), Some(file)] = apns {
+        let environment = optional("APNS_ENVIRONMENT")
+            .ok_or_else(|| anyhow::anyhow!("APNs environment required"))?;
+        anyhow::ensure!(
+            matches!(environment.as_str(), "sandbox" | "production"),
+            "invalid APNs environment"
+        );
+        config.push.apns = Some(smartcindy::ApnsConfig {
+            team_id: team,
+            key_id: key,
+            bundle_id: bundle,
+            private_key: private_file(&file)?,
+            sandbox: environment == "sandbox",
+        });
+    }
     let app = Application::connect(config).await?;
     if args.first().map(String::as_str) == Some("provision-user") {
         anyhow::ensure!(
@@ -126,4 +180,31 @@ async fn run() -> anyhow::Result<()> {
     }
     // Process shutdown drops remaining local futures. Running leases are recovered as interrupted.
     Ok(())
+}
+
+fn optional(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|s| !s.is_empty())
+}
+fn private_file(path: &str) -> anyhow::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(
+        metadata.is_file() && metadata.len() <= 65536,
+        "invalid private configuration file"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        anyhow::ensure!(
+            metadata.permissions().mode() & 0o077 == 0,
+            "private file permissions must exclude group and others"
+        );
+    }
+    let mut content = String::new();
+    (&mut file).take(65537).read_to_string(&mut content)?;
+    anyhow::ensure!(
+        content.len() <= 65536,
+        "private configuration file too large"
+    );
+    Ok(content)
 }

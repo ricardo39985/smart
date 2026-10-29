@@ -18,7 +18,7 @@ Production is one Debian Lightsail instance using native services, with no Docke
 | JSON | Serde and sonic-rs; serde_json where required by dependencies |
 | Durable data | PostgreSQL 18/pgvector and SQLx migrations; first-slice private images in quota-bounded bytea; full-text search remains planned |
 | Connection management | SQLx pools through PgBouncer; direct migration connection |
-| Context and memory machinery | Selected Rig, rig-memory, pinned chrischabot/mem0-rs deferred until memory/context slice; SQL transcript remains authority (ADR 0003) |
+| Context and memory machinery | PostgreSQL-owned context assembly and bounded background extraction; overlapping Rig/rig-memory/mem0-rs engines remain deferred after adapter review (ADR 0007) |
 | Local embeddings | Bekko a8m, 384 dimensions, OpenVINO in a private process |
 | Hosted AI | Previously selected DeepSeek Flash, Search/Fetch, hosted FLUX.2 Klein fast/distilled endpoint |
 | Accounts and billing | Local signup and Argon2id passwords; Google/Apple verified identities with explicit linking; hashed opaque native sessions in PostgreSQL; email verification/recovery and billing remain planned |
@@ -86,3 +86,19 @@ Planning source: [Personal AI Assistant Development Pipeline](https://chatgpt.co
 ## Native account authentication
 
 `src/auth.rs` owns account/password/session operations; `src/identity.rs` owns bounded Google/Apple protocol handling and proof-bound native exchange. PostgreSQL remains the identity authority. The mobile client uses the system authentication browser and secure device storage; provider secrets remain server-side. Matching email never automatically links accounts. See [ADR 0005](decisions/0005-native-account-authentication.md), [API contract](api.md) and [provider operations](operations/authentication.md).
+
+## Memory and context implementation boundary
+
+[ADR 0007](decisions/0007-memory-context.md) defines the implemented source layout:
+`memory` owns user controls and epochs, `context` assembles stable personality,
+recent branch history and hybrid recall, and `memory_worker` indexes source text
+and performs batched extraction/summarization. Explicit controls and inferred
+corrections fence stale publication. Source transcripts remain authoritative.
+The private Python/OpenVINO process isolates native inference from Rust; requests
+use literal loopback, bounded concurrency and a pinned model revision. Keyword
+retrieval remains available when local inference is disabled or unavailable.
+The integration is written, but real PostgreSQL journeys, embedding quality and
+live-provider compatibility must pass before these are production guarantees.
+
+Projects organize chats without changing their ownership or memory scope. Deleting
+a project detaches its chats; deleting a chat removes its derived memory/context.

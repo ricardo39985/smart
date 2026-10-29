@@ -21,6 +21,8 @@ struct Job {
 }
 pub(crate) async fn run(app: Application, shutdown: watch::Receiver<bool>) -> anyhow::Result<()> {
     let mut workers = JoinSet::new();
+    workers.spawn(crate::memory_worker::run(app.clone(), shutdown.clone()));
+    workers.spawn(crate::push::run(app.clone(), shutdown.clone()));
     for _ in 0..app.0.config.workers {
         workers.spawn(worker(app.clone(), shutdown.clone()));
     }
@@ -130,9 +132,14 @@ async fn execute(
     let chat = job.chat;
     let user = job.user;
     let output = job.output.clone();
+    let generation = job.id;
+    let lease = job.lease;
     let future = async move {
         let context =
             provider::context(&provider_app, owner, chat, user, output == "image").await?;
+        let updated = sqlx::query("UPDATE generations SET context=$3 WHERE id=$1 AND lease=$2 AND status='running' AND lease_until>now()")
+            .bind(generation).bind(lease).bind(&context.metadata).execute(&provider_app.0.pool).await?.rows_affected();
+        anyhow::ensure!(updated == 1, "generation cancelled");
         provider::generate(provider_app, output, context, tx).await
     };
     tokio::pin!(future);
@@ -279,6 +286,11 @@ async fn finish(
     }
     sqlx::query("UPDATE chats SET head_id=$3,version=version+1,updated_at=now() WHERE id=$1 AND owner_id=$2 AND head_id=$4 AND deleted_at IS NULL").bind(job.chat).bind(job.owner).bind(id).bind(job.user).execute(&mut *tx).await?;
     sqlx::query("UPDATE generations SET status='completed',result_message_id=$2,lease=NULL,lease_until=NULL,updated_at=now() WHERE id=$1").bind(job.id).bind(id).execute(&mut *tx).await?;
+    crate::push::enqueue(&mut tx, app, job.owner, job.chat, job.id).await?;
+    if job.output == "text" {
+        crate::memory_worker::index_turn(&mut tx, job.owner, job.chat, job.user, id).await?;
+        crate::memory_worker::enqueue(&mut tx, job.owner, job.chat, id).await?;
+    }
     chat::event(
         &mut tx,
         job.id,

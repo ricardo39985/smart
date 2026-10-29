@@ -3,7 +3,7 @@
   "info": {
     "title": "SmartCindy API",
     "version": "1.0.0",
-    "description": "Implemented v1 native chat backend contract. All responses are no-store. Unknown request fields are rejected. Image editing uses the current user message's private attachment IDs; provider-specific fields are not public."
+    "description": "Authenticated native API. Responses are no-store. Unknown request fields are rejected. Memory/context and projects are owner-scoped; private retrieved content is never included in generation metadata. JSON bodies default to 16 KiB (8 KiB for account/auth, 256 KiB for turns); attachment/avatar bodies are capped at 8/2 MiB."
   },
   "servers": [
     {
@@ -37,6 +37,18 @@
     },
     {
       "name": "Operations"
+    },
+    {
+      "name": "Memory"
+    },
+    {
+      "name": "Projects"
+    },
+    {
+      "name": "Realtime"
+    },
+    {
+      "name": "Push"
     }
   ],
   "paths": {
@@ -552,6 +564,14 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -580,7 +600,7 @@
         "tags": [
           "Chats"
         ],
-        "summary": "Create chat",
+        "summary": "Create or idempotently replay a chat",
         "requestBody": {
           "required": true,
           "content": {
@@ -602,10 +622,29 @@
               }
             }
           },
+          "200": {
+            "description": "Identical live request replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chat"
+                }
+              }
+            }
+          },
           "400": {
             "$ref": "#/components/responses/Error"
           },
           "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "410": {
             "$ref": "#/components/responses/Error"
           },
           "500": {
@@ -787,7 +826,8 @@
           "500": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Branch pages target 512 KiB of response bytes, return whole message records only and always include at least one record; an oversized single record is returned whole. Traversal remains bounded by limit and ancestry checks."
       }
     },
     "/v1/chats/{id}/branches": {
@@ -837,7 +877,8 @@
           "500": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Branch pages target 512 KiB of response bytes, return whole branch records only and always include at least one record."
       }
     },
     "/v1/chats/{id}/turns": {
@@ -846,7 +887,7 @@
           "Messages"
         ],
         "summary": "Accept a user turn",
-        "description": "At most 16 parts, 4 images and 32 KiB combined UTF-8 text. These limits are business rules; JSON Schema maxLength counts characters. Image output uses current-user text and photos.",
+        "description": "Turn JSON request bodies are capped at 256 KiB; semantic text/image context limits still apply.",
         "parameters": [
           {
             "$ref": "#/components/parameters/UuidPath"
@@ -1103,22 +1144,26 @@
             "image/jpeg": {
               "schema": {
                 "type": "string",
-                "format": "binary"
+                "format": "binary",
+                "description": "Raw image bytes, maximum 8 MiB."
               }
             },
             "image/png": {
               "schema": {
                 "type": "string",
-                "format": "binary"
+                "format": "binary",
+                "description": "Raw image bytes, maximum 8 MiB."
               }
             },
             "image/webp": {
               "schema": {
                 "type": "string",
-                "format": "binary"
+                "format": "binary",
+                "description": "Raw image bytes, maximum 8 MiB."
               }
             }
-          }
+          },
+          "description": "Raw image body, maximum 8 MiB."
         },
         "responses": {
           "201": {
@@ -1424,6 +1469,665 @@
         },
         "description": "Capability is false. The handler returns 503 email_delivery_unavailable without changing account state."
       }
+    },
+    "/v1/projects": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "List owned projects",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ChatLimit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned project page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Create an idempotent project",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/projects/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UuidPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Get owned active project",
+        "responses": {
+          "200": {
+            "description": "Owned project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Rename project with optimistic version",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Soft-delete project and detach its chats",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Project deleted and chats detached"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/chats/{id}/project": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UuidPath"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Assign or detach a chat project",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectAssignment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated chat project association",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAssignmentResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/memory/settings": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Get memory controls",
+        "responses": {
+          "200": {
+            "description": "Current controls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemorySettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Update memory controls with owner epoch",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemorySettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated controls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemorySettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/memories": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "List active owned memories",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ChatLimit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memory page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Create idempotent saved memory",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMemory"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Memory"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Memory"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/memories/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UuidPath"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Correct saved memory with optimistic version",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemory"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Memory"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Delete memory content and retain idempotency tombstone",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Memory content and embedding cleared"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/memory/jobs": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "List bounded background memory job status and usage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ChatLimit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned memory job page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryJobPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "Stream owner-scoped resource invalidations",
+        "description": "One-way SSE invalidation feed. Event data contains identifiers and actions only; fetch resource details through the authenticated APIs. No cursor or stale cursor produces a resync event at the current high watermark.",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent resync or coalesced change events. Event IDs are owner-wide sequence numbers.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "SSE event stream. Data payloads match RealtimeResync or RealtimeChanges."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/devices/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UuidPath"
+        }
+      ],
+      "put": {
+        "tags": [
+          "Push"
+        ],
+        "summary": "Register or replace session-bound native push device",
+        "description": "Full replacement for this owner/device ID. The registration binds to the current bearer session. An identical same-session PUT preserves the record and pending delivery. The push token is never returned. At most 32 devices per owner; token uniqueness is global. A registration bound to an expired session may be reclaimed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRegistration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device registered; token omitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Device"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Push"
+        ],
+        "summary": "Delete owned push device registration",
+        "responses": {
+          "204": {
+            "description": "Device removed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1634,7 +2338,10 @@
           "text",
           "image_input",
           "image_output",
-          "image_editing"
+          "image_editing",
+          "push",
+          "push_android",
+          "push_ios"
         ],
         "properties": {
           "text": {
@@ -1648,6 +2355,18 @@
           },
           "image_editing": {
             "type": "boolean"
+          },
+          "push": {
+            "type": "boolean",
+            "description": "At least one native push provider is configured."
+          },
+          "push_android": {
+            "type": "boolean",
+            "description": "FCM credentials are configured."
+          },
+          "push_ios": {
+            "type": "boolean",
+            "description": "APNs credentials are configured."
           }
         }
       },
@@ -1661,7 +2380,8 @@
           "version",
           "head_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "project_id"
         ],
         "properties": {
           "id": {
@@ -1686,6 +2406,9 @@
           },
           "updated_at": {
             "$ref": "#/components/schemas/DateTime"
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/NullableUuid"
           }
         }
       },
@@ -1699,8 +2422,16 @@
           "title": {
             "type": "string",
             "maxLength": 200
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/NullableUuid"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Uuid",
+            "description": "Optional owner-scoped idempotency key. When supplied, it is fingerprinted with raw title and project_id."
           }
-        }
+        },
+        "description": "Unknown fields are rejected. request_id is optional; an identical live replay returns the original chat, changed input conflicts, and a replay after deletion returns 410."
       },
       "UpdateChat": {
         "type": "object",
@@ -1826,7 +2557,8 @@
           "replaces_message_id": {
             "$ref": "#/components/schemas/NullableUuid"
           }
-        }
+        },
+        "description": "Turn request. JSON body cap 256 KiB. Content, parts and context have additional semantic limits."
       },
       "RegenerateRequest": {
         "type": "object",
@@ -1981,6 +2713,14 @@
               },
               "total_tokens": {
                 "$ref": "#/components/schemas/UsageCount"
+              },
+              "cached_input_tokens": {
+                "$ref": "#/components/schemas/UsageCount",
+                "description": "Optional; omitted when the provider does not report a count."
+              },
+              "uncached_input_tokens": {
+                "$ref": "#/components/schemas/UsageCount",
+                "description": "Optional; omitted when the provider does not report a count."
               }
             }
           },
@@ -2000,7 +2740,8 @@
           "error",
           "usage",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "context"
         ],
         "properties": {
           "generation_id": {
@@ -2033,6 +2774,9 @@
           },
           "updated_at": {
             "$ref": "#/components/schemas/DateTime"
+          },
+          "context": {
+            "$ref": "#/components/schemas/NullableContextMetadata"
           }
         }
       },
@@ -2128,6 +2872,530 @@
           "password_change": {
             "type": "boolean",
             "const": false
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/DateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        }
+      },
+      "CreateProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "name"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Must not be blank."
+          }
+        }
+      },
+      "UpdateProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "name"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Must not be blank."
+          }
+        }
+      },
+      "ProjectPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "next_cursor": {
+            "$ref": "#/components/schemas/NullableString"
+          }
+        }
+      },
+      "ProjectAssignment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "project_id"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/NullableUuid"
+          }
+        }
+      },
+      "ProjectAssignmentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "project_id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/NullableUuid"
+          }
+        }
+      },
+      "MemorySettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "version"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "UpdateMemorySettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "enabled"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Memory": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "content",
+          "version",
+          "source_chat_id",
+          "source_message_id",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "content": {
+            "type": "string",
+            "description": "Nonblank, at most 2,000 UTF-8 bytes."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source_chat_id": {
+            "$ref": "#/components/schemas/NullableUuid"
+          },
+          "source_message_id": {
+            "$ref": "#/components/schemas/NullableUuid"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/DateTime"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        }
+      },
+      "CreateMemory": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "content"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank, at most 2,000 UTF-8 bytes."
+          }
+        }
+      },
+      "UpdateMemory": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "content"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank, at most 2,000 UTF-8 bytes."
+          }
+        }
+      },
+      "MemoryPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Memory"
+            }
+          },
+          "next_cursor": {
+            "$ref": "#/components/schemas/NullableString"
+          }
+        }
+      },
+      "MemoryJob": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "error",
+          "usage",
+          "created_at",
+          "chat_id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/NullableString"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/DateTime"
+          },
+          "chat_id": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        }
+      },
+      "MemoryJobPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryJob"
+            }
+          },
+          "next_cursor": {
+            "$ref": "#/components/schemas/NullableString"
+          }
+        }
+      },
+      "ContextMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "retrieval_mode",
+          "recent_messages",
+          "recalled_memories",
+          "recalled_passages",
+          "summary_used",
+          "estimated_text_bytes",
+          "memory_version",
+          "assembly_ms"
+        ],
+        "properties": {
+          "retrieval_mode": {
+            "type": "string",
+            "enum": [
+              "keyword",
+              "hybrid",
+              "keyword_fallback"
+            ]
+          },
+          "recent_messages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "recalled_memories": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "recalled_passages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "summary_used": {
+            "type": "boolean"
+          },
+          "estimated_text_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "memory_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "assembly_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ImageContextMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "current_image_inputs"
+          }
+        }
+      },
+      "NullableContextMetadata": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ContextMetadata"
+          },
+          {
+            "$ref": "#/components/schemas/ImageContextMetadata"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "ResourceInvalidation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource",
+          "id",
+          "action"
+        ],
+        "properties": {
+          "resource": {
+            "type": "string",
+            "enum": [
+              "chat",
+              "project",
+              "memory",
+              "memory_settings",
+              "account"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "invalidate",
+              "remove"
+            ]
+          }
+        }
+      },
+      "RealtimeChanges": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seq",
+          "changes"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceInvalidation"
+            },
+            "maxItems": 128
+          }
+        }
+      },
+      "RealtimeResync": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seq",
+          "action"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "action": {
+            "const": "resync"
+          }
+        }
+      },
+      "DeviceRegistration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "platform",
+          "token"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ]
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "1..4096 UTF-8 bytes, no whitespace/control characters; iOS token must be hex."
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "previews": {
+            "type": "boolean",
+            "default": false,
+            "description": "Opt in to a short assistant-reply or private generated-attachment preview."
+          }
+        }
+      },
+      "Device": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "platform",
+          "enabled",
+          "previews",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "previews": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/DateTime"
           }
         }
       }
